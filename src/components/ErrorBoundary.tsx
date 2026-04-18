@@ -41,12 +41,12 @@ export class ErrorBoundary extends Component<Props, State> {
                 Try Again
               </button>
               <button
-                onClick={() => {
-                  const entries = log.getEntries();
-                  const text = entries.map((e) =>
-                    `[${new Date(e.timestamp).toISOString()}] ${e.level} ${e.source}: ${e.message}${e.data ? ' ' + JSON.stringify(e.data) : ''}`
-                  ).join('\n');
-                  navigator.clipboard.writeText(text);
+                onClick={async () => {
+                  const session = log.getEntries();
+                  const history = await log.getHistory();
+                  const all = [...history, ...session];
+                  all.sort((a, b) => a.timestamp - b.timestamp);
+                  await navigator.clipboard.writeText(log.format(all));
                 }}
                 className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm rounded transition-colors"
               >
