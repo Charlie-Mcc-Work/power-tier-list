@@ -4,7 +4,7 @@ import { useAllTierLists, createTierList, deleteTierList, updateTierListName } f
 import { setActiveTierListId } from '../../hooks/use-tier-list';
 import { openSnapshotManager } from '../layout/SnapshotManager';
 import { openHelpPanel } from '../layout/HelpPanel';
-import type { TierList } from '../../types';
+import type { TierList, TierDefinition } from '../../types';
 import { DEFAULT_TIER_DEFS } from '../../types';
 
 export function HomePage() {

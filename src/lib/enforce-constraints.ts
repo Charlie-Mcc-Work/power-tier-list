@@ -157,7 +157,6 @@ export function autoPlaceAndEnforce(
   tierIds: string[],
 ): TierAssignment[] {
   const maxIdx = tierIds.length - 1;
-  const numTiers = tierIds.length;
 
   if (relationships.length === 0) return currentAssignments;
 
@@ -200,14 +199,8 @@ export function autoPlaceAndEnforce(
         }
 
         // Also check inferiors: we must be ABOVE them
-        for (const [inf, edge] of fwd.get(charId) ?? new Map()) {
-          const ii = tierMap.get(inf);
-          if (ii != null) {
-            // We need to be at ii - gap or higher (lower index)
-            // This is an upper bound, but we prefer the highest (lowest index)
-            // so lo stays as the binding constraint from superiors
-            hasPlacedNeighbor = true;
-          }
+        for (const [inf] of fwd.get(charId) ?? new Map()) {
+          if (tierMap.has(inf)) hasPlacedNeighbor = true;
         }
 
         if (hasPlacedNeighbor) {
