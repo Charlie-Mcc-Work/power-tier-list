@@ -108,7 +108,10 @@ export function enforceAfterMove(
     }
   }
 
-  return rebuildAssignments(tierMap, currentAssignments, tierIds);
+  return enforceWithinTierOrder(
+    rebuildAssignments(tierMap, currentAssignments, tierIds),
+    relationships,
+  );
 }
 
 /**
@@ -207,7 +210,92 @@ export function autoPlaceAndEnforce(
     }
   }
 
-  return rebuildAssignments(tierMap, currentAssignments, tierIds);
+  return enforceWithinTierOrder(
+    rebuildAssignments(tierMap, currentAssignments, tierIds),
+    relationships,
+  );
+}
+
+/**
+ * Enforce within-tier ordering based on non-strict (>=) relationships.
+ * If A >= B and both are in the same tier, A must be positioned before B.
+ * Exported so the drag handler can apply it to within-tier reorders.
+ */
+export function enforceWithinTierOrder(
+  assignments: TierAssignment[],
+  relationships: Relationship[],
+): TierAssignment[] {
+  if (relationships.length === 0) return assignments;
+
+  // Group assignments by tier
+  const byTier = new Map<string, TierAssignment[]>();
+  for (const a of assignments) {
+    if (!byTier.has(a.tier)) byTier.set(a.tier, []);
+    byTier.get(a.tier)!.push(a);
+  }
+
+  const result: TierAssignment[] = [];
+
+  for (const [tier, tierAssigns] of byTier) {
+    if (tierAssigns.length <= 1) {
+      result.push(...tierAssigns);
+      continue;
+    }
+
+    const charIds = new Set(tierAssigns.map((a) => a.characterId));
+    const posMap = new Map(tierAssigns.map((a) => [a.characterId, a.position]));
+
+    // Build subgraph: non-strict edges between characters in this tier
+    const edges = new Map<string, string[]>();
+    const inDegree = new Map<string, number>();
+    for (const id of charIds) {
+      edges.set(id, []);
+      inDegree.set(id, 0);
+    }
+
+    for (const rel of relationships) {
+      if (rel.strict) continue; // strict means different tiers, no within-tier effect
+      if (charIds.has(rel.superiorId) && charIds.has(rel.inferiorId)) {
+        edges.get(rel.superiorId)!.push(rel.inferiorId);
+        inDegree.set(rel.inferiorId, (inDegree.get(rel.inferiorId) ?? 0) + 1);
+      }
+    }
+
+    // Topological sort (Kahn's) with existing position as tiebreaker
+    const sorted: string[] = [];
+    const queue = [...charIds]
+      .filter((id) => (inDegree.get(id) ?? 0) === 0)
+      .sort((a, b) => (posMap.get(a) ?? 0) - (posMap.get(b) ?? 0));
+
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      sorted.push(node);
+      for (const neighbor of edges.get(node) ?? []) {
+        const newDeg = (inDegree.get(neighbor) ?? 1) - 1;
+        inDegree.set(neighbor, newDeg);
+        if (newDeg === 0) {
+          // Insert in position-sorted order for stable tiebreaking
+          const nPos = posMap.get(neighbor) ?? 0;
+          let i = 0;
+          while (i < queue.length && (posMap.get(queue[i]) ?? 0) <= nPos) i++;
+          queue.splice(i, 0, neighbor);
+        }
+      }
+    }
+
+    // Any remaining characters (from equality cycles like A=B) keep existing order
+    const inSorted = new Set(sorted);
+    const remaining = [...charIds]
+      .filter((id) => !inSorted.has(id))
+      .sort((a, b) => (posMap.get(a) ?? 0) - (posMap.get(b) ?? 0));
+    sorted.push(...remaining);
+
+    sorted.forEach((id, pos) => {
+      result.push({ characterId: id, tier, position: pos });
+    });
+  }
+
+  return result;
 }
 
 function rebuildAssignments(

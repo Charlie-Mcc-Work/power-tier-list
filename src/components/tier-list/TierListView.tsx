@@ -21,7 +21,7 @@ import { useCharacters } from '../../hooks/use-characters';
 import { useTierList, updateTierAssignments } from '../../hooks/use-tier-list';
 import { useRelationships } from '../../hooks/use-relationships';
 import { findInconsistencies } from '../../lib/inconsistency-checker';
-import { enforceAfterMove } from '../../lib/enforce-constraints';
+import { enforceAfterMove, enforceWithinTierOrder } from '../../lib/enforce-constraints';
 import type { Character, TierAssignment } from '../../types';
 import { DEFAULT_TIER_DEFS } from '../../types';
 
@@ -188,6 +188,8 @@ export function TierListView() {
         reordered.forEach((id, idx) => {
           finalAssignments.push({ characterId: id, tier, position: idx });
         });
+        // Re-enforce within-tier ordering from relationships
+        finalAssignments = enforceWithinTierOrder(finalAssignments, relationships);
       } else {
         finalAssignments = dragPreview;
       }
