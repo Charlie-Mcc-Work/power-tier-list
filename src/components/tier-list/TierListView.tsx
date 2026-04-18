@@ -8,7 +8,6 @@ import {
   useSensors,
   type DragStartEvent,
   type DragEndEvent,
-  type DragOverEvent,
 } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
 import { TierRow } from './TierRow';
@@ -18,7 +17,7 @@ import { ImageUploader } from './ImageUploader';
 import { InconsistencyBanner } from './InconsistencyBanner';
 import { TierManager } from './TierManager';
 import { useCharacters } from '../../hooks/use-characters';
-import { useTierList, updateTierAssignments, ensureTierList } from '../../hooks/use-tier-list';
+import { useTierList, updateTierAssignments } from '../../hooks/use-tier-list';
 import { useRelationships } from '../../hooks/use-relationships';
 import { findInconsistencies } from '../../lib/inconsistency-checker';
 import { enforceAfterMove } from '../../lib/enforce-constraints';
@@ -108,31 +107,9 @@ export function TierListView() {
     setDragStartContainer(findContainer(charId));
   }
 
-  function handleDragOver(event: DragOverEvent) {
-    const { active, over } = event;
-    if (!over) return;
-
-    const activeContainer = findContainer(active.id as string);
-    const overContainer = getContainerFromDroppableId(over.id as string);
-
-    if (activeContainer === overContainer) return;
-
-    // Simple visual move (no enforcement yet — that happens on drop)
-    const newAssignments = assignments.filter(
-      (a) => a.characterId !== (active.id as string),
-    );
-
-    if (overContainer !== 'unranked') {
-      const tierItems = newAssignments.filter((a) => a.tier === overContainer);
-      newAssignments.push({
-        characterId: active.id as string,
-        tier: overContainer,
-        position: tierItems.length,
-      });
-    }
-
-    updateTierAssignments(newAssignments);
-  }
+  // No handleDragOver — all DB writes happen on drop only.
+  // This prevents layout shifts, scroll jumps, and visual jank during drag.
+  // The DragOverlay follows the cursor, and tier rows highlight via isOver.
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -142,12 +119,10 @@ export function TierListView() {
     if (!over) return;
 
     const overContainer = getContainerFromDroppableId(over.id as string);
-    const currentContainer = findContainer(active.id as string);
-    const wasCrossTier = origContainer !== currentContainer || origContainer !== overContainer;
 
-    if (!wasCrossTier && currentContainer !== 'unranked') {
+    if (origContainer === overContainer && origContainer !== 'unranked') {
       // Reorder within same tier
-      const tier = currentContainer;
+      const tier = origContainer;
       const tierCharIds = getCharacterIdsForTier(tier);
       const oldIndex = tierCharIds.indexOf(active.id as string);
       const overIndex = tierCharIds.indexOf(over.id as string);
@@ -162,23 +137,19 @@ export function TierListView() {
         });
         updateTierAssignments(newAssignments);
       }
-    } else if (overContainer === 'unranked' || currentContainer === 'unranked') {
-      // Moving to/from unranked — no enforcement needed
-      if (overContainer === 'unranked') {
-        const newAssignments = assignments.filter(
-          (a) => a.characterId !== (active.id as string),
-        );
-        updateTierAssignments(newAssignments);
-      }
-      // Moving FROM unranked to a tier is already handled by handleDragOver
-    } else {
-      // Cross-tier move — enforce constraints!
-      const targetTier = currentContainer;
+    } else if (overContainer === 'unranked') {
+      // Drop to unranked — remove from tier
+      const newAssignments = assignments.filter(
+        (a) => a.characterId !== (active.id as string),
+      );
+      updateTierAssignments(newAssignments);
+    } else if (overContainer !== origContainer) {
+      // Cross-tier move or from unranked — enforce constraints
       const enforced = enforceAfterMove(
         assignments,
         relationships,
         active.id as string,
-        targetTier,
+        overContainer,
         tierIds,
       );
       updateTierAssignments(enforced);
@@ -193,7 +164,6 @@ export function TierListView() {
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
         <div className="rounded-lg overflow-hidden border border-gray-700 bg-[#141414]">
