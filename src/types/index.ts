@@ -68,6 +68,9 @@ export interface ImageBlob {
 
 export type AppView = 'tierlist' | 'relationships' | 'evidence';
 
+/** 'triple' = all 3 panels, 'split' = tier list + tabbed right pane, 'tabs' = one view at a time */
+export type LayoutMode = 'triple' | 'split' | 'tabs';
+
 export interface Inconsistency {
   type: 'placement' | 'cycle';
   message: string;
