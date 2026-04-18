@@ -23,7 +23,6 @@ export function findInconsistencies(
     const minGap = (rel.strict ?? false) ? 1 : 0;
     const op = rel.strict ? '>' : '>=';
 
-    // supTierIdx + minGap should be <= infTierIdx
     if (supTierIdx + minGap > infTierIdx) {
       const supName = charMap.get(rel.superiorId)?.name ?? 'Unknown';
       const infName = charMap.get(rel.inferiorId)?.name ?? 'Unknown';
@@ -38,16 +37,29 @@ export function findInconsistencies(
     }
   }
 
-  // Check for cycles
+  // Only flag cycles that contain at least one strict (>) edge.
+  // Non-strict-only cycles (all >=) are satisfiable — they mean "same tier."
   const graph = buildGraph(relationships);
   const cycles = detectCycles(graph);
+  const edgeStrict = new Map<string, boolean>();
+  for (const rel of relationships) {
+    edgeStrict.set(`${rel.superiorId}->${rel.inferiorId}`, rel.strict ?? false);
+  }
+
   for (const cycle of cycles) {
-    const names = cycle.map((id) => charMap.get(id)?.name ?? 'Unknown');
-    inconsistencies.push({
-      type: 'cycle',
-      message: `Circular ranking detected: ${names.join(' > ')} > ${names[0]}`,
-      characterIds: cycle,
+    const hasStrictEdge = cycle.some((id, i) => {
+      const next = cycle[(i + 1) % cycle.length];
+      return edgeStrict.get(`${id}->${next}`) === true;
     });
+
+    if (hasStrictEdge) {
+      const names = cycle.map((id) => charMap.get(id)?.name ?? 'Unknown');
+      inconsistencies.push({
+        type: 'cycle',
+        message: `Circular ranking: ${names.join(' > ')} > ${names[0]}`,
+        characterIds: cycle,
+      });
+    }
   }
 
   return inconsistencies;
