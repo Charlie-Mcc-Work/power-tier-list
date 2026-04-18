@@ -64,7 +64,24 @@ export async function ensureTierList(): Promise<TierList> {
 }
 
 export async function deleteTierList(id: string): Promise<void> {
-  await db.tierLists.delete(id);
+  await db.transaction(
+    'rw',
+    [db.tierLists, db.characters, db.relationships, db.evidence, db.images],
+    async () => {
+      // Delete all characters (and their images) belonging to this list
+      const chars = await db.characters.where('tierListId').equals(id).toArray();
+      const imageIds = chars.map((c) => c.imageId).filter((i): i is string => !!i);
+      if (imageIds.length > 0) await db.images.bulkDelete(imageIds);
+      await db.characters.where('tierListId').equals(id).delete();
+
+      // Delete all relationships and evidence belonging to this list
+      await db.relationships.where('tierListId').equals(id).delete();
+      await db.evidence.where('tierListId').equals(id).delete();
+
+      // Delete the tier list itself
+      await db.tierLists.delete(id);
+    },
+  );
 }
 
 export async function updateTierListName(id: string, name: string): Promise<void> {

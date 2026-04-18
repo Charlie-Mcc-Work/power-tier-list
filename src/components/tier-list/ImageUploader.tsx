@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { addCharacter, addBulkCharactersByName, setCharacterImage } from '../../hooks/use-characters';
 import { db } from '../../db/database';
+import { getActiveTierListId } from '../../hooks/use-tier-list';
 
 function nameFromFilename(filename: string): string {
   return filename.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
@@ -16,7 +17,8 @@ export function ImageUploader() {
 
   const handleFiles = useCallback(async (files: FileList | File[]) => {
     const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
-    const characters = await db.characters.toArray();
+    const tierListId = getActiveTierListId();
+    const characters = await db.characters.where('tierListId').equals(tierListId).toArray();
     let created = 0;
     let matched = 0;
 
