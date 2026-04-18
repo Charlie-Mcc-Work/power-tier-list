@@ -7,19 +7,23 @@ interface Props {
   tierDef: TierDefinition;
   characters: Character[];
   characterIds: string[];
+  highlighted?: boolean;
 }
 
-export function TierRow({ tierDef, characters, characterIds }: Props) {
+export function TierRow({ tierDef, characters, characterIds, highlighted }: Props) {
   const { setNodeRef, isOver } = useDroppable({
     id: `tier-${tierDef.id}`,
     data: { type: 'tier', tier: tierDef.id },
   });
 
+  const showHighlight = isOver || highlighted;
+
   return (
     <div
-      className={`flex items-stretch border-b border-gray-700 min-h-[88px] transition-all duration-150 ${
-        isOver
-          ? 'ring-2 ring-inset ring-amber-400/60 bg-amber-400/5'
+      ref={setNodeRef}
+      className={`flex items-stretch border-b border-gray-700 min-h-[88px] transition-all duration-100 ${
+        showHighlight
+          ? 'ring-2 ring-inset ring-amber-400/60 bg-amber-400/8'
           : ''
       }`}
     >
@@ -36,10 +40,7 @@ export function TierRow({ tierDef, characters, characterIds }: Props) {
         items={characterIds}
         strategy={horizontalListSortingStrategy}
       >
-        <div
-          ref={setNodeRef}
-          className="flex-1 flex items-center gap-2 p-2 flex-wrap min-h-[88px]"
-        >
+        <div className="flex-1 flex items-center gap-2 p-2 flex-wrap min-h-[88px]">
           {characters.map((char) => (
             <CharacterCard key={char.id} character={char} />
           ))}

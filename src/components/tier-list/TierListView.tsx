@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   DndContext,
   DragOverlay,
-  closestCenter,
+  pointerWithin,
   PointerSensor,
   useSensor,
   useSensors,
@@ -34,8 +34,9 @@ export function TierListView() {
   const [blockMessage, setBlockMessage] = useState<string | null>(null);
   const [dragStartContainer, setDragStartContainer] = useState<string | null>(null);
   const [dragPreview, setDragPreview] = useState<TierAssignment[] | null>(null);
-  // Guard against re-entrant dragOver calls
+  const [hoveredTierId, setHoveredTierId] = useState<string | null>(null);
   const dragOverBusy = useRef(false);
+  const viewRef = useRef<HTMLDivElement>(null);
 
   const tierDefs = tierList?.tierDefs ?? DEFAULT_TIER_DEFS;
   const tierIds = useMemo(() => tierDefs.map((t) => t.id), [tierDefs]);
@@ -48,6 +49,52 @@ export function TierListView() {
 
   const dbAssignments = tierList?.tiers ?? [];
   const assignments = dragPreview ?? dbAssignments;
+
+  // Track which tier the pointer is physically over during drag (for highlighting)
+  // and enable mousewheel scrolling during drag
+  useEffect(() => {
+    if (!activeId) {
+      setHoveredTierId(null);
+      return;
+    }
+
+    // Find scrollable ancestor for wheel forwarding
+    let scrollParent: HTMLElement | null = viewRef.current;
+    while (scrollParent && scrollParent.scrollHeight <= scrollParent.clientHeight) {
+      scrollParent = scrollParent.parentElement;
+    }
+
+    function handlePointerMove(e: PointerEvent) {
+      if (!viewRef.current) return;
+      const tierContainer = viewRef.current.querySelector('[data-tier-container]');
+      if (!tierContainer) return;
+
+      for (const child of tierContainer.children) {
+        const rect = child.getBoundingClientRect();
+        if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
+          const tierId = child.getAttribute('data-tier-id');
+          if (tierId) {
+            setHoveredTierId(tierId);
+            return;
+          }
+        }
+      }
+      setHoveredTierId(null);
+    }
+
+    function handleWheel(e: WheelEvent) {
+      if (scrollParent) {
+        scrollParent.scrollTop += e.deltaY;
+      }
+    }
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('wheel', handleWheel, { passive: true });
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('wheel', handleWheel);
+    };
+  }, [activeId]);
 
   // Clear local preview once DB catches up after drop
   useEffect(() => {
@@ -245,7 +292,7 @@ export function TierListView() {
   }
 
   return (
-    <div>
+    <div ref={viewRef}>
       {blockMessage && (
         <div className="mb-3 rounded-lg border border-red-600/50 bg-red-900/20 px-4 py-2.5 flex items-center gap-3">
           <span className="text-red-400 text-sm font-medium shrink-0">Move blocked</span>
@@ -262,19 +309,21 @@ export function TierListView() {
 
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        collisionDetection={pointerWithin}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <div className="rounded-lg overflow-hidden border border-gray-700 bg-[#141414]">
+        <div data-tier-container className="rounded-lg overflow-hidden border border-gray-700 bg-[#141414]">
           {tierDefs.map((td) => (
-            <TierRow
-              key={td.id}
-              tierDef={td}
-              characters={getCharactersForTier(td.id)}
-              characterIds={getCharacterIdsForTier(td.id)}
-            />
+            <div key={td.id} data-tier-id={td.id}>
+              <TierRow
+                tierDef={td}
+                characters={getCharactersForTier(td.id)}
+                characterIds={getCharacterIdsForTier(td.id)}
+                highlighted={hoveredTierId === td.id && activeId != null}
+              />
+            </div>
           ))}
         </div>
 
