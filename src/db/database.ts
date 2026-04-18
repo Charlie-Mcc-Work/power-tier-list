@@ -1,12 +1,20 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { Character, TierList, Relationship, Evidence, ImageBlob } from '../types';
 
+export interface Snapshot {
+  id: string;
+  name: string;
+  createdAt: number;
+  data: string; // JSON blob of full export
+}
+
 const db = new Dexie('PowerTierListDB') as Dexie & {
   characters: EntityTable<Character, 'id'>;
   tierLists: EntityTable<TierList, 'id'>;
   relationships: EntityTable<Relationship, 'id'>;
   evidence: EntityTable<Evidence, 'id'>;
   images: EntityTable<ImageBlob, 'id'>;
+  snapshots: EntityTable<Snapshot, 'id'>;
 };
 
 db.version(1).stores({
@@ -24,7 +32,6 @@ db.version(2).stores({
   evidence: 'id, kind, tierListId, *characterIds, *relationshipIds',
   images: 'id, originalFilename',
 }).upgrade(async (tx) => {
-  // Assign all existing records to the first tier list that exists
   const tierLists = await tx.table('tierLists').toArray();
   const defaultId = tierLists.length > 0 ? tierLists[0].id : 'default';
 
@@ -37,6 +44,15 @@ db.version(2).stores({
   await tx.table('evidence').toCollection().modify((ev) => {
     if (!ev.tierListId) ev.tierListId = defaultId;
   });
+});
+
+db.version(3).stores({
+  characters: 'id, name, tierListId, createdAt',
+  tierLists: 'id, name, createdAt',
+  relationships: 'id, superiorId, inferiorId, tierListId, [superiorId+inferiorId]',
+  evidence: 'id, kind, tierListId, *characterIds, *relationshipIds',
+  images: 'id, originalFilename',
+  snapshots: 'id, createdAt',
 });
 
 export { db };

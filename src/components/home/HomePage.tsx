@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useUIStore } from '../../stores/ui-store';
 import { useAllTierLists, createTierList, deleteTierList, updateTierListName } from '../../hooks/use-tier-list';
 import { setActiveTierListId } from '../../hooks/use-tier-list';
+import { openSnapshotManager } from '../layout/SnapshotManager';
 import type { TierList } from '../../types';
 import { DEFAULT_TIER_DEFS } from '../../types';
 
@@ -32,11 +33,20 @@ export function HomePage() {
     <div className="min-h-screen bg-[#0d0d0d]">
       <div className="max-w-4xl mx-auto px-6 py-12">
         {/* Header */}
-        <div className="mb-10">
-          <h1 className="text-3xl font-bold text-white mb-2">Power Tier List</h1>
-          <p className="text-gray-500 text-sm">
-            {tierLists.length} tier list{tierLists.length !== 1 ? 's' : ''}
-          </p>
+        <div className="flex items-start justify-between mb-10">
+          <div>
+            <h1 className="text-3xl font-bold text-white mb-2">Power Tier List</h1>
+            <p className="text-gray-500 text-sm">
+              {tierLists.length} tier list{tierLists.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+          <button
+            onClick={openSnapshotManager}
+            className="px-4 py-2 text-sm text-gray-300 hover:text-white bg-[#1e1e1e] hover:bg-[#2a2a2a]
+                       border border-gray-700 rounded-lg transition-colors"
+          >
+            Backups
+          </button>
         </div>
 
         {/* Create new */}
