@@ -40,7 +40,7 @@ self.addEventListener('fetch', (event) => {
           if (cached) return cached;
           // Fallback for navigation requests
           if (request.mode === 'navigate') {
-            return caches.match('/index.html');
+            return caches.match('/power-tier-list/index.html') || caches.match('/index.html');
           }
           return new Response('Offline', { status: 503 });
         });

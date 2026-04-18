@@ -2,7 +2,7 @@
   "name": "Power Tier List",
   "short_name": "Tier List",
   "description": "Constraint-based tier list builder with relationship enforcement",
-  "start_url": "/",
+  "start_url": "/power-tier-list/",
   "display": "standalone",
   "orientation": "any",
   "theme_color": "#0d0d0d",
