@@ -3,23 +3,49 @@ import { db } from '../db/database';
 import type { Relationship, Character } from '../types';
 import { findBestMatch } from '../lib/fuzzy-match';
 import { parseChain, isParseError } from '../lib/relationship-parser';
+import { buildGraph, findUnsatisfiableCycle } from '../lib/graph';
 
 export function useRelationships(): Relationship[] {
   return useLiveQuery(() => db.relationships.toArray(), []) ?? [];
 }
 
+/**
+ * Add a relationship. Refuses if it would create an unsatisfiable cycle
+ * (any cycle containing a strict ">" edge). Non-strict cycles (all ">=")
+ * are allowed since they just mean "same tier."
+ */
 export async function addRelationship(
   superiorId: string,
   inferiorId: string,
   strict: boolean,
   note?: string,
-): Promise<string> {
+): Promise<{ id: string } | { cycleError: string }> {
   // Check for duplicate
   const existing = await db.relationships
     .where('[superiorId+inferiorId]')
     .equals([superiorId, inferiorId])
     .first();
-  if (existing) return existing.id;
+  if (existing) return { id: existing.id };
+
+  // Build graph and check for unsatisfiable cycles
+  const allRels = await db.relationships.toArray();
+  const graph = buildGraph(allRels);
+  if (!graph.has(superiorId)) graph.set(superiorId, new Set());
+  if (!graph.has(inferiorId)) graph.set(inferiorId, new Set());
+
+  const edgeStrictness = new Map<string, boolean>();
+  for (const rel of allRels) {
+    edgeStrictness.set(`${rel.superiorId}->${rel.inferiorId}`, rel.strict ?? false);
+  }
+
+  const cyclePath = findUnsatisfiableCycle(graph, edgeStrictness, superiorId, inferiorId, strict);
+  if (cyclePath) {
+    const chars = await db.characters.bulkGet(cyclePath);
+    const names = cyclePath.map((id, i) => chars[i]?.name ?? id);
+    return {
+      cycleError: `Would create a cycle: ${names.join(' > ')} > ${names[0]}`,
+    };
+  }
 
   const id = crypto.randomUUID();
   await db.relationships.add({
@@ -31,11 +57,12 @@ export async function addRelationship(
     note,
     createdAt: Date.now(),
   });
-  return id;
+  return { id };
 }
 
 /**
  * Parse a chain statement (e.g. "A > B > C") and create all relationships.
+ * Stops reporting cycle errors but continues processing remaining pairs.
  */
 export async function addRelationshipsFromChain(
   chain: string,
@@ -65,8 +92,12 @@ export async function addRelationshipsFromChain(
       continue;
     }
 
-    await addRelationship(sup.id, inf.id, pair.strict, note);
-    added++;
+    const result = await addRelationship(sup.id, inf.id, pair.strict, note);
+    if ('cycleError' in result) {
+      errors.push(result.cycleError);
+    } else {
+      added++;
+    }
   }
 
   return { added, errors };
