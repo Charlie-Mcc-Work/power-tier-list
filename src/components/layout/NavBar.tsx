@@ -1,6 +1,6 @@
 import { useRef } from 'react';
-import { useUIStore } from '../../stores/ui-store';
-import type { ImageDisplayMode } from '../../stores/ui-store';
+import { useUIStore, CARD_SIZES } from '../../stores/ui-store';
+import type { ImageDisplayMode, CardSize } from '../../stores/ui-store';
 import { exportData, importData, downloadExport } from '../../db/export-import';
 import type { AppView, LayoutMode } from '../../types';
 
@@ -21,8 +21,14 @@ const imageDisplayOptions: { mode: ImageDisplayMode; label: string; title: strin
   { mode: 'cover', label: 'Fill', title: 'Fill square (may crop)' },
 ];
 
+const cardSizeOptions: CardSize[] = ['xs', 'sm', 'md', 'lg'];
+
 export function NavBar() {
-  const { activeView, setActiveView, layoutMode, setLayoutMode, imageDisplay, setImageDisplay, navigateHome } = useUIStore();
+  const {
+    activeView, setActiveView, layoutMode, setLayoutMode,
+    imageDisplay, setImageDisplay, cardSize, setCardSize,
+    setPresenting, navigateHome,
+  } = useUIStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function handleExport() {
@@ -55,7 +61,7 @@ export function NavBar() {
       </h1>
 
       {/* Layout switcher */}
-      <div className="flex items-center border border-gray-600 rounded overflow-hidden mr-4">
+      <div className="flex items-center border border-gray-600 rounded overflow-hidden mr-3">
         {layouts.map((l) => (
           <button
             key={l.mode}
@@ -91,7 +97,25 @@ export function NavBar() {
           </button>
         ))}
 
-      <div className="ml-auto flex items-center gap-3">
+      <div className="ml-auto flex items-center gap-2">
+        {/* Card size */}
+        <div className="flex items-center border border-gray-600 rounded overflow-hidden">
+          {cardSizeOptions.map((s) => (
+            <button
+              key={s}
+              onClick={() => setCardSize(s)}
+              title={`Card size: ${CARD_SIZES[s].name}`}
+              className={`px-1.5 py-1 text-[10px] transition-colors ${
+                cardSize === s
+                  ? 'bg-gray-600 text-white'
+                  : 'bg-gray-800 text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {CARD_SIZES[s].name}
+            </button>
+          ))}
+        </div>
+
         {/* Image display toggle */}
         <div className="flex items-center border border-gray-600 rounded overflow-hidden">
           {imageDisplayOptions.map((opt) => (
@@ -109,6 +133,17 @@ export function NavBar() {
             </button>
           ))}
         </div>
+
+        {/* Present button */}
+        <button
+          onClick={() => setPresenting(true)}
+          className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-amber-700 hover:bg-amber-600
+                     rounded transition-colors"
+          title="Full-screen presentation view"
+        >
+          Present
+        </button>
+
         <button
           onClick={handleExport}
           className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600

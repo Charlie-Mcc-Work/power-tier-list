@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
-import type { TierList, TierAssignment, TierRank } from '../types';
+import type { TierList, TierAssignment } from '../types';
+import { DEFAULT_TIER_DEFS } from '../types';
 import { autoPlaceAndEnforce } from '../lib/enforce-constraints';
 
 // ── Active tier list ID (module-level so all functions share it) ──
@@ -37,6 +38,7 @@ export async function createTierList(name: string): Promise<string> {
   await db.tierLists.add({
     id,
     name,
+    tierDefs: DEFAULT_TIER_DEFS,
     tiers: [],
     createdAt: now,
     updatedAt: now,
@@ -52,6 +54,7 @@ export async function ensureTierList(): Promise<TierList> {
   const tierList: TierList = {
     id: activeTierListId,
     name: 'My Tier List',
+    tierDefs: DEFAULT_TIER_DEFS,
     tiers: [],
     createdAt: now,
     updatedAt: now,
@@ -80,7 +83,7 @@ export async function updateTierAssignments(tiers: TierAssignment[]): Promise<vo
 
 export async function assignCharacterToTier(
   characterId: string,
-  tier: TierRank,
+  tier: string,
   position: number,
 ): Promise<void> {
   const tierList = await ensureTierList();
@@ -106,8 +109,10 @@ export async function enforceAndAutoPlace(): Promise<void> {
     db.characters.toArray(),
   ]);
 
+  const tierDefs = tierList.tierDefs ?? DEFAULT_TIER_DEFS;
+  const tierIds = tierDefs.map((t) => t.id);
   const allCharIds = new Set(characters.map((c) => c.id));
-  const newAssignments = autoPlaceAndEnforce(tierList.tiers, relationships, allCharIds);
+  const newAssignments = autoPlaceAndEnforce(tierList.tiers, relationships, allCharIds, tierIds);
 
   if (
     newAssignments.length !== tierList.tiers.length ||
@@ -118,4 +123,45 @@ export async function enforceAndAutoPlace(): Promise<void> {
   ) {
     await updateTierAssignments(newAssignments);
   }
+}
+
+// ── Tier definition management ──
+
+export async function addTierDef(name: string, color: string): Promise<void> {
+  const tierList = await ensureTierList();
+  const tierDefs = [...(tierList.tierDefs ?? DEFAULT_TIER_DEFS)];
+  const id = crypto.randomUUID();
+  tierDefs.push({ id, name, color });
+  await db.tierLists.update(activeTierListId, { tierDefs, updatedAt: Date.now() });
+}
+
+export async function removeTierDef(tierId: string): Promise<void> {
+  const tierList = await ensureTierList();
+  const tierDefs = (tierList.tierDefs ?? DEFAULT_TIER_DEFS).filter((t) => t.id !== tierId);
+  // Also remove any assignments in that tier
+  const tiers = tierList.tiers.filter((a) => a.tier !== tierId);
+  await db.tierLists.update(activeTierListId, { tierDefs, tiers, updatedAt: Date.now() });
+}
+
+export async function renameTierDef(tierId: string, name: string): Promise<void> {
+  const tierList = await ensureTierList();
+  const tierDefs = (tierList.tierDefs ?? DEFAULT_TIER_DEFS).map((t) =>
+    t.id === tierId ? { ...t, name } : t,
+  );
+  await db.tierLists.update(activeTierListId, { tierDefs, updatedAt: Date.now() });
+}
+
+export async function recolorTierDef(tierId: string, color: string): Promise<void> {
+  const tierList = await ensureTierList();
+  const tierDefs = (tierList.tierDefs ?? DEFAULT_TIER_DEFS).map((t) =>
+    t.id === tierId ? { ...t, color } : t,
+  );
+  await db.tierLists.update(activeTierListId, { tierDefs, updatedAt: Date.now() });
+}
+
+export async function reorderTierDefs(tierIds: string[]): Promise<void> {
+  const tierList = await ensureTierList();
+  const defsMap = new Map((tierList.tierDefs ?? DEFAULT_TIER_DEFS).map((t) => [t.id, t]));
+  const tierDefs = tierIds.map((id) => defsMap.get(id)!).filter(Boolean);
+  await db.tierLists.update(activeTierListId, { tierDefs, updatedAt: Date.now() });
 }

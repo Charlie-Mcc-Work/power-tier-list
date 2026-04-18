@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import type { Relationship, Character, TierRank } from '../../types';
-import { TIER_RANKS, TIER_COLORS } from '../../types';
+import type { Relationship, Character, TierDefinition } from '../../types';
+import { DEFAULT_TIER_DEFS } from '../../types';
 import { buildGraph, topologicalSort, deriveLayeredRanking } from '../../lib/graph';
-import { updateTierAssignments, ensureTierList } from '../../hooks/use-tier-list';
+import { updateTierAssignments, ensureTierList, useTierList } from '../../hooks/use-tier-list';
 
 interface Props {
   relationships: Relationship[];
@@ -11,6 +11,8 @@ interface Props {
 
 export function RankedList({ relationships, characters }: Props) {
   const [applied, setApplied] = useState(false);
+  const tierList = useTierList();
+  const tierDefs: TierDefinition[] = tierList?.tierDefs ?? DEFAULT_TIER_DEFS;
 
   const charMap = useMemo(
     () => new Map(characters.map((c) => [c.id, c])),
@@ -38,19 +40,18 @@ export function RankedList({ relationships, characters }: Props) {
     if (!sortedLayers) return;
     await ensureTierList();
 
-    // Map graph layers to tier ranks. If more layers than tiers, compress.
-    const tierAssignments: { characterId: string; tier: TierRank; position: number }[] = [];
+    // Map graph layers to tier defs. If more layers than tiers, compress.
+    const tierAssignments: { characterId: string; tier: string; position: number }[] = [];
 
     for (const [layerIdx, ids] of sortedLayers) {
-      // Map layer index to a tier rank, clamping to available tiers
-      const tierIdx = Math.min(layerIdx, TIER_RANKS.length - 1);
-      const tier = TIER_RANKS[tierIdx];
-      const existingInTier = tierAssignments.filter((a) => a.tier === tier).length;
+      const tierIdx = Math.min(layerIdx, tierDefs.length - 1);
+      const tier = tierDefs[tierIdx];
+      const existingInTier = tierAssignments.filter((a) => a.tier === tier.id).length;
       ids.forEach((id, i) => {
         if (charMap.has(id)) {
           tierAssignments.push({
             characterId: id,
-            tier,
+            tier: tier.id,
             position: existingInTier + i,
           });
         }
@@ -91,15 +92,15 @@ export function RankedList({ relationships, characters }: Props) {
           </button>
         </div>
         {sortedLayers.map(([layer, ids]) => {
-          const tierIdx = Math.min(layer, TIER_RANKS.length - 1);
-          const tier = TIER_RANKS[tierIdx];
+          const tierIdx = Math.min(layer, tierDefs.length - 1);
+          const tier = tierDefs[tierIdx];
           return (
             <div key={layer} className="flex items-start gap-3">
               <span
                 className="text-xs font-bold w-8 h-6 flex items-center justify-center rounded shrink-0"
-                style={{ backgroundColor: TIER_COLORS[tier], color: '#141414' }}
+                style={{ backgroundColor: tier.color, color: '#141414' }}
               >
-                {tier}
+                {tier.name}
               </span>
               <div className="flex flex-wrap gap-1">
                 {ids.map((id) => {
@@ -118,7 +119,7 @@ export function RankedList({ relationships, characters }: Props) {
           );
         })}
         <p className="text-[10px] text-gray-500">
-          Layers are mapped to tiers S through F. Click "Apply to Tier List" to auto-place.
+          Layers are mapped to tiers. Click "Apply to Tier List" to auto-place.
         </p>
       </div>
     );

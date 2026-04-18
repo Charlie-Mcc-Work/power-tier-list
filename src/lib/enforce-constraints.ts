@@ -1,15 +1,12 @@
-import type { Relationship, TierAssignment, TierRank } from '../types';
-import { TIER_RANKS } from '../types';
+import type { Relationship, TierAssignment } from '../types';
 import { buildGraph, deriveLayeredRanking } from './graph';
 
-const TIER_TO_IDX = new Map(TIER_RANKS.map((t, i) => [t, i]));
-const MAX_IDX = TIER_RANKS.length - 1;
-
-function toIdx(tier: TierRank): number {
-  return TIER_TO_IDX.get(tier)!;
+function toIdx(tierId: string, tierIds: string[]): number {
+  return tierIds.indexOf(tierId);
 }
-function toTier(idx: number): TierRank {
-  return TIER_RANKS[Math.max(0, Math.min(idx, MAX_IDX))];
+function toTierId(idx: number, tierIds: string[]): string {
+  const maxIdx = tierIds.length - 1;
+  return tierIds[Math.max(0, Math.min(idx, maxIdx))];
 }
 
 interface Edge {
@@ -40,8 +37,11 @@ export function enforceAfterMove(
   currentAssignments: TierAssignment[],
   relationships: Relationship[],
   movedCharId: string,
-  targetTier: TierRank,
+  targetTier: string,
+  tierIds: string[],
 ): TierAssignment[] {
+  const maxIdx = tierIds.length - 1;
+
   if (relationships.length === 0) {
     const result = currentAssignments.filter((a) => a.characterId !== movedCharId);
     const tierItems = result.filter((a) => a.tier === targetTier);
@@ -51,9 +51,9 @@ export function enforceAfterMove(
 
   const tierMap = new Map<string, number>();
   for (const a of currentAssignments) {
-    tierMap.set(a.characterId, toIdx(a.tier));
+    tierMap.set(a.characterId, toIdx(a.tier, tierIds));
   }
-  tierMap.set(movedCharId, toIdx(targetTier));
+  tierMap.set(movedCharId, toIdx(targetTier, tierIds));
 
   const { fwd, rev } = buildGraphPair(relationships);
 
@@ -73,7 +73,7 @@ export function enforceAfterMove(
       }
 
       if (cur < reqMin) {
-        tierMap.set(node, Math.min(reqMin, MAX_IDX));
+        tierMap.set(node, Math.min(reqMin, maxIdx));
         for (const child of fwd.get(node)?.keys() ?? []) queue.push(child);
       }
     }
@@ -88,7 +88,7 @@ export function enforceAfterMove(
       if (cur == null) continue;
 
       // Must be above all inferiors (with gap for strict)
-      let reqMax = MAX_IDX;
+      let reqMax = maxIdx;
       for (const [inf, edge] of fwd.get(node) ?? new Map()) {
         const ii = tierMap.get(inf);
         if (ii != null) reqMax = Math.min(reqMax, ii - (edge.strict ? 1 : 0));
@@ -101,7 +101,7 @@ export function enforceAfterMove(
     }
   }
 
-  return rebuildAssignments(tierMap, currentAssignments);
+  return rebuildAssignments(tierMap, currentAssignments, tierIds);
 }
 
 /**
@@ -112,12 +112,16 @@ export function autoPlaceAndEnforce(
   currentAssignments: TierAssignment[],
   relationships: Relationship[],
   allCharacterIds: Set<string>,
+  tierIds: string[],
 ): TierAssignment[] {
+  const maxIdx = tierIds.length - 1;
+  const numTiers = tierIds.length;
+
   if (relationships.length === 0) return currentAssignments;
 
   const tierMap = new Map<string, number>();
   for (const a of currentAssignments) {
-    tierMap.set(a.characterId, toIdx(a.tier));
+    tierMap.set(a.characterId, toIdx(a.tier, tierIds));
   }
 
   const { fwd, rev } = buildGraphPair(relationships);
@@ -154,7 +158,7 @@ export function autoPlaceAndEnforce(
         }
 
         if (hasConstraint) {
-          tierMap.set(charId, Math.min(lo, MAX_IDX));
+          tierMap.set(charId, Math.min(lo, maxIdx));
           remaining.delete(charId);
         }
       }
@@ -166,12 +170,11 @@ export function autoPlaceAndEnforce(
       const layers = deriveLayeredRanking(graph);
       if (layers) {
         const numLayers = layers.size;
-        const numTiers = TIER_RANKS.length;
         const sortedLayers = [...layers.entries()].sort(([a], [b]) => a - b);
         for (const [layerIdx, charIds] of sortedLayers) {
           const tierIdx = Math.min(
             Math.floor((layerIdx / Math.max(numLayers, 1)) * numTiers),
-            MAX_IDX,
+            maxIdx,
           );
           for (const charId of charIds) {
             if (remaining.has(charId)) {
@@ -181,8 +184,10 @@ export function autoPlaceAndEnforce(
           }
         }
       } else {
+        // Fallback: put in middle tier
+        const midIdx = Math.min(3, maxIdx);
         for (const charId of remaining) {
-          tierMap.set(charId, 3);
+          tierMap.set(charId, midIdx);
         }
       }
     }
@@ -200,18 +205,19 @@ export function autoPlaceAndEnforce(
       if (si == null || ii == null) continue;
       const minGap = (rel.strict ?? false) ? 1 : 0;
       if (si + minGap > ii) {
-        tierMap.set(rel.inferiorId, Math.min(si + minGap, MAX_IDX));
+        tierMap.set(rel.inferiorId, Math.min(si + minGap, maxIdx));
         changed = true;
       }
     }
   }
 
-  return rebuildAssignments(tierMap, currentAssignments);
+  return rebuildAssignments(tierMap, currentAssignments, tierIds);
 }
 
 function rebuildAssignments(
   tierMap: Map<string, number>,
   originalAssignments: TierAssignment[],
+  tierIds: string[],
 ): TierAssignment[] {
   const origByChar = new Map<string, TierAssignment>();
   for (const a of originalAssignments) {
@@ -227,13 +233,13 @@ function rebuildAssignments(
   const result: TierAssignment[] = [];
 
   for (const [idx, charIds] of byTier) {
-    const tier = toTier(idx);
+    const tier = toTierId(idx, tierIds);
     const stayed: string[] = [];
     const moved: string[] = [];
 
     for (const id of charIds) {
       const orig = origByChar.get(id);
-      if (orig && toIdx(orig.tier) === idx) {
+      if (orig && toIdx(orig.tier, tierIds) === idx) {
         stayed.push(id);
       } else {
         moved.push(id);

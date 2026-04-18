@@ -1,14 +1,13 @@
 import type { TierAssignment, Relationship, Inconsistency, Character } from '../types';
-import { TIER_RANKS } from '../types';
 import { buildGraph, detectCycles } from './graph';
-
-const tierIndex = new Map(TIER_RANKS.map((t, i) => [t, i]));
 
 export function findInconsistencies(
   assignments: TierAssignment[],
   relationships: Relationship[],
   characters: Character[],
+  tierIds: string[],
 ): Inconsistency[] {
+  const tierIndex = new Map(tierIds.map((t, i) => [t, i]));
   const inconsistencies: Inconsistency[] = [];
   const charMap = new Map(characters.map((c) => [c.id, c]));
   const assignmentMap = new Map(assignments.map((a) => [a.characterId, a]));
@@ -19,8 +18,8 @@ export function findInconsistencies(
 
     if (!supAssign || !infAssign) continue;
 
-    const supTierIdx = tierIndex.get(supAssign.tier)!;
-    const infTierIdx = tierIndex.get(infAssign.tier)!;
+    const supTierIdx = tierIndex.get(supAssign.tier) ?? 0;
+    const infTierIdx = tierIndex.get(infAssign.tier) ?? 0;
     const minGap = (rel.strict ?? false) ? 1 : 0;
     const op = rel.strict ? '>' : '>=';
 

@@ -16,20 +16,24 @@ import { UnrankedPool } from './UnrankedPool';
 import { CharacterCard } from './CharacterCard';
 import { ImageUploader } from './ImageUploader';
 import { InconsistencyBanner } from './InconsistencyBanner';
+import { TierManager } from './TierManager';
 import { useCharacters } from '../../hooks/use-characters';
 import { useTierList, updateTierAssignments, ensureTierList } from '../../hooks/use-tier-list';
 import { useRelationships } from '../../hooks/use-relationships';
 import { findInconsistencies } from '../../lib/inconsistency-checker';
 import { enforceAfterMove } from '../../lib/enforce-constraints';
-import type { Character, TierRank, TierAssignment } from '../../types';
-import { TIER_RANKS } from '../../types';
+import type { Character, TierAssignment } from '../../types';
+import { DEFAULT_TIER_DEFS } from '../../types';
 
 export function TierListView() {
   const characters = useCharacters();
   const tierList = useTierList();
   const relationships = useRelationships();
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [dragStartContainer, setDragStartContainer] = useState<TierRank | 'unranked' | null>(null);
+  const [dragStartContainer, setDragStartContainer] = useState<string | null>(null);
+
+  const tierDefs = tierList?.tierDefs ?? DEFAULT_TIER_DEFS;
+  const tierIds = useMemo(() => tierDefs.map((t) => t.id), [tierDefs]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -48,9 +52,9 @@ export function TierListView() {
   );
 
   const getCharactersForTier = useCallback(
-    (tier: TierRank): Character[] => {
+    (tierId: string): Character[] => {
       return assignments
-        .filter((a) => a.tier === tier)
+        .filter((a) => a.tier === tierId)
         .sort((a, b) => a.position - b.position)
         .map((a) => charMap.get(a.characterId))
         .filter((c): c is Character => c !== undefined);
@@ -59,9 +63,9 @@ export function TierListView() {
   );
 
   const getCharacterIdsForTier = useCallback(
-    (tier: TierRank): string[] => {
+    (tierId: string): string[] => {
       return assignments
-        .filter((a) => a.tier === tier)
+        .filter((a) => a.tier === tierId)
         .sort((a, b) => a.position - b.position)
         .map((a) => a.characterId)
         .filter((id) => charMap.has(id));
@@ -80,21 +84,21 @@ export function TierListView() {
   );
 
   const inconsistencies = useMemo(
-    () => findInconsistencies(assignments, relationships, characters),
-    [assignments, relationships, characters],
+    () => findInconsistencies(assignments, relationships, characters, tierIds),
+    [assignments, relationships, characters, tierIds],
   );
 
   const activeCharacter = activeId ? charMap.get(activeId) : undefined;
 
-  function findContainer(id: string): TierRank | 'unranked' {
+  function findContainer(id: string): string {
     const assignment = assignmentMap.get(id);
     if (assignment) return assignment.tier;
     return 'unranked';
   }
 
-  function getContainerFromDroppableId(id: string): TierRank | 'unranked' {
+  function getContainerFromDroppableId(id: string): string {
     if (id === 'unranked') return 'unranked';
-    if (id.startsWith('tier-')) return id.replace('tier-', '') as TierRank;
+    if (id.startsWith('tier-')) return id.slice(5);
     return findContainer(id);
   }
 
@@ -144,12 +148,12 @@ export function TierListView() {
     if (!wasCrossTier && currentContainer !== 'unranked') {
       // Reorder within same tier
       const tier = currentContainer;
-      const tierIds = getCharacterIdsForTier(tier);
-      const oldIndex = tierIds.indexOf(active.id as string);
-      const overIndex = tierIds.indexOf(over.id as string);
+      const tierCharIds = getCharacterIdsForTier(tier);
+      const oldIndex = tierCharIds.indexOf(active.id as string);
+      const overIndex = tierCharIds.indexOf(over.id as string);
 
       if (oldIndex !== -1 && overIndex !== -1 && oldIndex !== overIndex) {
-        const reordered = arrayMove(tierIds, oldIndex, overIndex);
+        const reordered = arrayMove(tierCharIds, oldIndex, overIndex);
         const newAssignments: TierAssignment[] = assignments.filter(
           (a) => a.tier !== tier,
         );
@@ -169,12 +173,13 @@ export function TierListView() {
       // Moving FROM unranked to a tier is already handled by handleDragOver
     } else {
       // Cross-tier move — enforce constraints!
-      const targetTier = currentContainer as TierRank;
+      const targetTier = currentContainer;
       const enforced = enforceAfterMove(
         assignments,
         relationships,
         active.id as string,
         targetTier,
+        tierIds,
       );
       updateTierAssignments(enforced);
     }
@@ -192,12 +197,12 @@ export function TierListView() {
         onDragEnd={handleDragEnd}
       >
         <div className="rounded-lg overflow-hidden border border-gray-700 bg-[#141414]">
-          {TIER_RANKS.map((tier) => (
+          {tierDefs.map((td) => (
             <TierRow
-              key={tier}
-              tier={tier}
-              characters={getCharactersForTier(tier)}
-              characterIds={getCharacterIdsForTier(tier)}
+              key={td.id}
+              tierDef={td}
+              characters={getCharactersForTier(td.id)}
+              characterIds={getCharacterIdsForTier(td.id)}
             />
           ))}
         </div>
@@ -215,6 +220,7 @@ export function TierListView() {
       </DndContext>
 
       <ImageUploader />
+      <TierManager tierDefs={tierDefs} />
     </div>
   );
 }

@@ -1,15 +1,21 @@
-export type TierRank = 'S' | 'A' | 'B' | 'C' | 'D' | 'F';
+// ── Tier Definitions ──
 
-export const TIER_RANKS: TierRank[] = ['S', 'A', 'B', 'C', 'D', 'F'];
+export interface TierDefinition {
+  id: string;
+  name: string;
+  color: string;
+}
 
-export const TIER_COLORS: Record<TierRank, string> = {
-  S: 'var(--tier-s)',
-  A: 'var(--tier-a)',
-  B: 'var(--tier-b)',
-  C: 'var(--tier-c)',
-  D: 'var(--tier-d)',
-  F: 'var(--tier-f)',
-};
+export const DEFAULT_TIER_DEFS: TierDefinition[] = [
+  { id: 'S', name: 'S', color: '#ff7f7f' },
+  { id: 'A', name: 'A', color: '#ffbf7f' },
+  { id: 'B', name: 'B', color: '#ffdf7f' },
+  { id: 'C', name: 'C', color: '#ffff7f' },
+  { id: 'D', name: 'D', color: '#7fff7f' },
+  { id: 'F', name: 'F', color: '#bf7fbf' },
+];
+
+// ── Core Models ──
 
 export interface Character {
   id: string;
@@ -21,7 +27,7 @@ export interface Character {
 
 export interface TierAssignment {
   characterId: string;
-  tier: TierRank;
+  tier: string;
   position: number;
 }
 
@@ -29,6 +35,7 @@ export interface TierList {
   id: string;
   name: string;
   description?: string;
+  tierDefs: TierDefinition[];
   tiers: TierAssignment[];
   createdAt: number;
   updatedAt: number;
@@ -66,8 +73,6 @@ export interface ImageBlob {
 }
 
 export type AppView = 'tierlist' | 'relationships' | 'evidence';
-
-/** 'triple' = all 3 panels, 'split' = tier list + tabbed right pane, 'tabs' = one view at a time */
 export type LayoutMode = 'triple' | 'split' | 'tabs';
 
 export interface Inconsistency {

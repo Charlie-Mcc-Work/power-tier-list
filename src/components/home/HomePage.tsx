@@ -4,8 +4,8 @@ import { useAllTierLists, createTierList, deleteTierList, updateTierListName } f
 import { useCharacters } from '../../hooks/use-characters';
 import { useRelationships } from '../../hooks/use-relationships';
 import { setActiveTierListId } from '../../hooks/use-tier-list';
-import type { TierList } from '../../types';
-import { TIER_RANKS, TIER_COLORS } from '../../types';
+import type { TierList, TierDefinition } from '../../types';
+import { DEFAULT_TIER_DEFS } from '../../types';
 
 export function HomePage() {
   const tierLists = useAllTierLists();
@@ -101,6 +101,8 @@ function TierListCard({
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tierList.name);
 
+  const tierDefs: TierDefinition[] = tierList.tierDefs ?? DEFAULT_TIER_DEFS;
+
   const tierCounts = new Map<string, number>();
   for (const t of tierList.tiers) {
     tierCounts.set(t.tier, (tierCounts.get(t.tier) ?? 0) + 1);
@@ -124,15 +126,15 @@ function TierListCard({
     >
       {/* Mini tier preview */}
       <div className="rounded overflow-hidden mb-3 border border-gray-800">
-        {TIER_RANKS.map((tier) => {
-          const count = tierCounts.get(tier) ?? 0;
+        {tierDefs.map((td) => {
+          const count = tierCounts.get(td.id) ?? 0;
           return (
-            <div key={tier} className="flex items-center h-4">
+            <div key={td.id} className="flex items-center h-4">
               <div
                 className="w-6 shrink-0 h-full flex items-center justify-center text-[8px] font-bold"
-                style={{ backgroundColor: TIER_COLORS[tier], color: '#141414' }}
+                style={{ backgroundColor: td.color, color: '#141414' }}
               >
-                {tier}
+                {td.name}
               </div>
               <div className="flex-1 bg-[#141414] h-full flex items-center px-1">
                 {count > 0 && (

@@ -1,19 +1,18 @@
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { CharacterCard } from './CharacterCard';
-import type { Character, TierRank } from '../../types';
-import { TIER_COLORS } from '../../types';
+import type { Character, TierDefinition } from '../../types';
 
 interface Props {
-  tier: TierRank;
+  tierDef: TierDefinition;
   characters: Character[];
   characterIds: string[];
 }
 
-export function TierRow({ tier, characters, characterIds }: Props) {
+export function TierRow({ tierDef, characters, characterIds }: Props) {
   const { setNodeRef, isOver } = useDroppable({
-    id: `tier-${tier}`,
-    data: { type: 'tier', tier },
+    id: `tier-${tierDef.id}`,
+    data: { type: 'tier', tier: tierDef.id },
   });
 
   return (
@@ -24,9 +23,9 @@ export function TierRow({ tier, characters, characterIds }: Props) {
     >
       <div
         className="w-16 shrink-0 flex items-center justify-center font-bold text-xl text-gray-900"
-        style={{ backgroundColor: TIER_COLORS[tier] }}
+        style={{ backgroundColor: tierDef.color }}
       >
-        {tier}
+        {tierDef.name}
       </div>
       <SortableContext
         items={characterIds}
