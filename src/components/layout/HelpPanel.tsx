@@ -138,6 +138,8 @@ export function HelpPanel() {
               <li><span className="text-gray-300">Undo / Redo</span> — Ctrl+Z to undo, Ctrl+Shift+Z or Ctrl+Y to redo. Tracks drag moves and relationship placements (last 50 states).</li>
               <li><span className="text-gray-300">Save Image</span> — In presentation mode, click "Save Image" to download the tier list as a PNG.</li>
               <li><span className="text-gray-300">Graph</span> — Click "Show Graph" in the relationships panel to see the relationship DAG. Pan by dragging, zoom with mousewheel.</li>
+              <li><span className="text-gray-300">Sync</span> — Connect to a self-hosted sync server to push/pull tier lists between devices. Set up the server with Docker, enter the URL and token.</li>
+              <li><span className="text-gray-300">Share</span> — Generate a read-only link for the current tier list (requires sync server).</li>
             </ul>
           </section>
         </div>

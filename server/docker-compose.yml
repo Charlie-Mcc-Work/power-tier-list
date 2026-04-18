@@ -1,0 +1,14 @@
+services:
+  tierlist-sync:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - SYNC_TOKEN=${SYNC_TOKEN}
+      - PORT=3001
+    volumes:
+      - tierlist-data:/data
+    restart: unless-stopped
+
+volumes:
+  tierlist-data:

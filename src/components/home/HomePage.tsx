@@ -4,6 +4,7 @@ import { useAllTierLists, createTierList, deleteTierList, updateTierListName } f
 import { setActiveTierListId } from '../../hooks/use-tier-list';
 import { openSnapshotManager } from '../layout/SnapshotManager';
 import { openHelpPanel } from '../layout/HelpPanel';
+import { openSyncPanel } from '../layout/SyncPanel';
 import type { TierList, TierDefinition } from '../../types';
 import { DEFAULT_TIER_DEFS } from '../../types';
 
@@ -48,6 +49,13 @@ export function HomePage() {
                          border border-gray-700 rounded-lg transition-colors"
             >
               Backups
+            </button>
+            <button
+              onClick={openSyncPanel}
+              className="px-4 py-2 text-sm text-gray-300 hover:text-white bg-[#1e1e1e] hover:bg-[#2a2a2a]
+                         border border-gray-700 rounded-lg transition-colors"
+            >
+              Sync
             </button>
             <button
               onClick={openHelpPanel}

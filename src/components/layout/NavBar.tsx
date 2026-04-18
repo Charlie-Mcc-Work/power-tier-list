@@ -4,6 +4,7 @@ import type { ImageDisplayMode, CardSize } from '../../stores/ui-store';
 import { exportData, importData, downloadExport } from '../../db/export-import';
 import { openSnapshotManager } from './SnapshotManager';
 import { openHelpPanel } from './HelpPanel';
+import { openSyncPanel } from './SyncPanel';
 import type { AppView, LayoutMode } from '../../types';
 
 const tabs: { view: AppView; label: string }[] = [
@@ -170,6 +171,15 @@ export function NavBar() {
             </button>
           ))}
         </div>
+
+        {/* Sync */}
+        <button
+          onClick={openSyncPanel}
+          className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
+                     rounded transition-colors"
+        >
+          Sync
+        </button>
 
         {/* Present button */}
         <button
