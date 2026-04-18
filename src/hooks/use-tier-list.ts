@@ -23,7 +23,10 @@ export function useTierList(): TierList | undefined {
 }
 
 export function useAllTierLists(): TierList[] {
-  return useLiveQuery(() => db.tierLists.orderBy('updatedAt').reverse().toArray(), []) ?? [];
+  return useLiveQuery(
+    () => db.tierLists.toArray().then((lists) => lists.sort((a, b) => b.updatedAt - a.updatedAt)),
+    [],
+  ) ?? [];
 }
 
 // ── CRUD ──
