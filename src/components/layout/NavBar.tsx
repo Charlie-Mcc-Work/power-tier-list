@@ -29,7 +29,8 @@ export function NavBar() {
   const {
     activeView, setActiveView, layoutMode, setLayoutMode,
     imageDisplay, setImageDisplay, cardSize, setCardSize,
-    setPresenting, navigateHome,
+    setPresenting, navigateHome, showTierCounts, setShowTierCounts,
+    searchQuery, setSearchQuery,
   } = useUIStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -47,7 +48,7 @@ export function NavBar() {
   }
 
   return (
-    <nav className="flex items-center gap-1 bg-[#1a1a1a] border-b border-gray-700 px-4">
+    <nav className="flex items-center gap-1 bg-[#1a1a1a] border-b border-gray-700 px-3 py-1 flex-wrap sm:flex-nowrap sm:py-0">
       <button
         onClick={navigateHome}
         className="text-gray-400 hover:text-white transition-colors mr-2 py-3 text-sm"
@@ -100,6 +101,40 @@ export function NavBar() {
         ))}
 
       <div className="ml-auto flex items-center gap-2">
+        {/* Search */}
+        <div className="relative">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search..."
+            className="w-32 bg-[#141414] border border-gray-700 rounded px-2 py-1 text-xs text-white
+                       placeholder-gray-600 focus:border-amber-400 focus:outline-none focus:w-48
+                       transition-all"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-xs"
+            >
+              x
+            </button>
+          )}
+        </div>
+
+        {/* Tier count toggle */}
+        <button
+          onClick={() => setShowTierCounts(!showTierCounts)}
+          title={showTierCounts ? 'Hide tier counts' : 'Show tier counts'}
+          className={`px-2 py-1 text-[10px] rounded border transition-colors ${
+            showTierCounts
+              ? 'bg-gray-600 text-white border-gray-500'
+              : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
+          }`}
+        >
+          #
+        </button>
+
         {/* Card size */}
         <div className="flex items-center border border-gray-600 rounded overflow-hidden">
           {cardSizeOptions.map((s) => (

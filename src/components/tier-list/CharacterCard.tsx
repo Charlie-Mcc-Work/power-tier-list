@@ -15,7 +15,10 @@ export const CharacterCard = memo(function CharacterCard({ character, isDragOver
   const selectCharacter = useUIStore((s) => s.selectCharacter);
   const imageDisplay = useUIStore((s) => s.imageDisplay);
   const cardSize = useUIStore((s) => s.cardSize);
+  const searchQuery = useUIStore((s) => s.searchQuery);
   const sizes = CARD_SIZES[cardSize];
+
+  const matchesSearch = !searchQuery || character.name.toLowerCase().includes(searchQuery.toLowerCase());
 
   const {
     attributes,
@@ -51,8 +54,9 @@ export const CharacterCard = memo(function CharacterCard({ character, isDragOver
       className={`
         flex flex-col items-center gap-0.5 p-1 rounded-lg cursor-grab active:cursor-grabbing
         bg-[#1e1e1e] hover:bg-[#2a2a2a] border border-gray-700 hover:border-gray-500
-        transition-colors shrink-0
+        transition-all shrink-0
         ${isDragOverlay ? 'shadow-2xl ring-2 ring-amber-400' : ''}
+        ${!matchesSearch ? 'opacity-15 scale-90' : ''}
       `}
     >
       <div

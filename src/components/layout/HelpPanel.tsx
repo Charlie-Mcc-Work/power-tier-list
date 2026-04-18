@@ -127,11 +127,14 @@ export function HelpPanel() {
           <section>
             <h3 className="text-white font-medium mb-2">Other Controls</h3>
             <ul className="text-xs space-y-1 text-gray-400">
-              <li><span className="text-gray-300">XS / S / M / L</span> — Card size presets in the nav bar</li>
+              <li><span className="text-gray-300">Search</span> — Type in the search bar to find characters. Non-matches dim so matches stand out.</li>
+              <li><span className="text-gray-300"># toggle</span> — Show/hide character count per tier</li>
+              <li><span className="text-gray-300">XS / S / M / L</span> — Card size presets</li>
               <li><span className="text-gray-300">Fit / Fill</span> — Image display: show full image or crop to square</li>
               <li><span className="text-gray-300">Present</span> — Fullscreen view for screenshots (Escape to exit)</li>
               <li><span className="text-gray-300">Backups</span> — Auto-snapshots on every app start, restorable anytime</li>
               <li><span className="text-gray-300">Export / Import</span> — Save/load as JSON file</li>
+              <li><span className="text-gray-300">Mobile</span> — Touch drag with long-press. Layout auto-switches to tabs on small screens.</li>
             </ul>
           </section>
         </div>

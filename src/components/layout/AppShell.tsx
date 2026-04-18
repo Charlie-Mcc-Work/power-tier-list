@@ -136,7 +136,7 @@ function TabsLayout() {
 }
 
 export function AppShell() {
-  const { layoutMode, selectedCharacterId, selectCharacter, activeTierListId } = useUIStore();
+  const { layoutMode, setLayoutMode, selectedCharacterId, selectCharacter, activeTierListId } = useUIStore();
 
   useEffect(() => {
     if (activeTierListId) {
@@ -144,6 +144,17 @@ export function AppShell() {
       ensureTierList();
     }
   }, [activeTierListId]);
+
+  // Auto-switch to tabs layout on narrow screens (mobile)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    function handle(e: MediaQueryListEvent | MediaQueryList) {
+      if (e.matches) setLayoutMode('tabs');
+    }
+    handle(mq);
+    mq.addEventListener('change', handle);
+    return () => mq.removeEventListener('change', handle);
+  }, [setLayoutMode]);
 
   return (
     <div className="flex flex-col h-screen">

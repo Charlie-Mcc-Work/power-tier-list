@@ -1,6 +1,7 @@
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { CharacterCard } from './CharacterCard';
+import { useUIStore } from '../../stores/ui-store';
 import type { Character, TierDefinition } from '../../types';
 
 interface Props {
@@ -15,7 +16,7 @@ export function TierRow({ tierDef, characters, characterIds, highlighted }: Prop
     id: `tier-${tierDef.id}`,
     data: { type: 'tier', tier: tierDef.id },
   });
-
+  const showTierCounts = useUIStore((s) => s.showTierCounts);
   const showHighlight = isOver || highlighted;
 
   return (
@@ -28,13 +29,18 @@ export function TierRow({ tierDef, characters, characterIds, highlighted }: Prop
       }`}
     >
       <div
-        className="w-16 shrink-0 flex items-center justify-center font-bold text-xl"
+        className="w-16 shrink-0 flex flex-col items-center justify-center font-bold"
         style={{
           backgroundColor: tierDef.color,
           color: '#141414',
         }}
       >
-        {tierDef.name}
+        <span className="text-xl leading-none">{tierDef.name}</span>
+        {showTierCounts && (
+          <span className="text-[9px] font-medium opacity-70 leading-none mt-0.5">
+            {characters.length}
+          </span>
+        )}
       </div>
       <SortableContext
         items={characterIds}

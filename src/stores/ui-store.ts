@@ -22,6 +22,8 @@ interface UIState {
   imageDisplay: ImageDisplayMode;
   cardSize: CardSize;
   presenting: boolean;
+  showTierCounts: boolean;
+  searchQuery: string;
   selectedCharacterId: string | null;
   navigateHome: () => void;
   openTierList: (id: string) => void;
@@ -32,6 +34,8 @@ interface UIState {
   setImageDisplay: (mode: ImageDisplayMode) => void;
   setCardSize: (size: CardSize) => void;
   setPresenting: (v: boolean) => void;
+  setShowTierCounts: (v: boolean) => void;
+  setSearchQuery: (q: string) => void;
   selectCharacter: (id: string | null) => void;
 }
 
@@ -45,6 +49,8 @@ export const useUIStore = create<UIState>((set) => ({
   imageDisplay: 'contain',
   cardSize: 'md',
   presenting: false,
+  showTierCounts: false,
+  searchQuery: '',
   selectedCharacterId: null,
   navigateHome: () => set({ page: 'home', activeTierListId: null, selectedCharacterId: null }),
   openTierList: (id) => set({ page: 'editor', activeTierListId: id, selectedCharacterId: null }),
@@ -55,5 +61,7 @@ export const useUIStore = create<UIState>((set) => ({
   setImageDisplay: (mode) => set({ imageDisplay: mode }),
   setCardSize: (size) => set({ cardSize: size }),
   setPresenting: (v) => set({ presenting: v }),
+  setShowTierCounts: (v) => set({ showTierCounts: v }),
+  setSearchQuery: (q) => set({ searchQuery: q }),
   selectCharacter: (id) => set({ selectedCharacterId: id }),
 }));
