@@ -33,20 +33,25 @@ function buildGraphPair(relationships: Relationship[]) {
  * For strict relationships (>), the inferior must be in a strictly lower tier.
  * For non-strict (>=), same tier is allowed.
  */
+export type EnforceResult =
+  | { ok: true; assignments: TierAssignment[] }
+  | { ok: false; reason: string };
+
 export function enforceAfterMove(
   currentAssignments: TierAssignment[],
   relationships: Relationship[],
   movedCharId: string,
   targetTier: string,
   tierIds: string[],
-): TierAssignment[] {
+  charNames?: Map<string, string>,
+): EnforceResult {
   const maxIdx = tierIds.length - 1;
 
   if (relationships.length === 0) {
     const result = currentAssignments.filter((a) => a.characterId !== movedCharId);
     const tierItems = result.filter((a) => a.tier === targetTier);
     result.push({ characterId: movedCharId, tier: targetTier, position: tierItems.length });
-    return result;
+    return { ok: true, assignments: result };
   }
 
   const tierMap = new Map<string, number>();
@@ -54,16 +59,10 @@ export function enforceAfterMove(
     tierMap.set(a.characterId, toIdx(a.tier, tierIds));
   }
 
-  const { fwd, rev } = buildGraphPair(relationships);
+  // Place at target — no pre-validation. Let the cascade handle everything.
+  tierMap.set(movedCharId, toIdx(targetTier, tierIds));
 
-  // Validate the moved character's target against its own constraints.
-  // It can't go above any of its superiors (respecting strict gaps).
-  let movedIdx = toIdx(targetTier, tierIds);
-  for (const [sup, edge] of rev.get(movedCharId) ?? new Map()) {
-    const si = tierMap.get(sup);
-    if (si != null) movedIdx = Math.max(movedIdx, si + (edge.strict ? 1 : 0));
-  }
-  tierMap.set(movedCharId, Math.min(movedIdx, maxIdx));
+  const { fwd, rev } = buildGraphPair(relationships);
 
   // Phase 1: Push descendants down
   {
@@ -73,7 +72,6 @@ export function enforceAfterMove(
       const cur = tierMap.get(node);
       if (cur == null) continue;
 
-      // Must be below all superiors (with gap for strict)
       let reqMin = 0;
       for (const [sup, edge] of rev.get(node) ?? new Map()) {
         const si = tierMap.get(sup);
@@ -95,7 +93,6 @@ export function enforceAfterMove(
       const cur = tierMap.get(node);
       if (cur == null) continue;
 
-      // Must be above all inferiors (with gap for strict)
       let reqMax = maxIdx;
       for (const [inf, edge] of fwd.get(node) ?? new Map()) {
         const ii = tierMap.get(inf);
@@ -109,10 +106,32 @@ export function enforceAfterMove(
     }
   }
 
-  return enforceWithinTierOrder(
-    rebuildAssignments(tierMap, currentAssignments, tierIds),
-    relationships,
-  );
+  // After cascading, verify ALL constraints are satisfied.
+  // If any are violated (boundary clamp), the move is blocked.
+  for (const rel of relationships) {
+    const si = tierMap.get(rel.superiorId);
+    const ii = tierMap.get(rel.inferiorId);
+    if (si == null || ii == null) continue;
+    const gap = (rel.strict ?? false) ? 1 : 0;
+    if (si + gap > ii) {
+      const supName = charNames?.get(rel.superiorId) ?? rel.superiorId;
+      const infName = charNames?.get(rel.inferiorId) ?? rel.inferiorId;
+      const op = rel.strict ? '>' : '>=';
+      const boundary = si >= maxIdx ? 'bottom' : 'top';
+      return {
+        ok: false,
+        reason: `${supName} ${op} ${infName} — no room at the ${boundary} of the list`,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    assignments: enforceWithinTierOrder(
+      rebuildAssignments(tierMap, currentAssignments, tierIds),
+      relationships,
+    ),
+  };
 }
 
 /**

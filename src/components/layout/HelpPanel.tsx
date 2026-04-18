@@ -86,8 +86,10 @@ export function HelpPanel() {
                 characters are automatically placed in the highest valid tier.
               </li>
               <li>
-                <span className="text-gray-300">Drag cascading:</span> Moving a character to a new
-                tier pushes everything else to stay consistent.
+                <span className="text-gray-300">Drag cascading:</span> Moving a character pushes
+                related characters in both directions — superiors get pushed up, inferiors
+                get pushed down. If there's no room (a character hits the top or bottom
+                tier), the move is blocked with a warning explaining which rule caused it.
               </li>
               <li>
                 <span className="text-gray-300">Within-tier ordering:</span> Characters with

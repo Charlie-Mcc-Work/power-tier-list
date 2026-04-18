@@ -30,6 +30,7 @@ export function TierListView() {
   const tierList = useTierList();
   const relationships = useRelationships();
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [blockMessage, setBlockMessage] = useState<string | null>(null);
   const [dragStartContainer, setDragStartContainer] = useState<string | null>(null);
   // Local preview state during drag — avoids async DB writes mid-drag
   const [dragPreview, setDragPreview] = useState<TierAssignment[] | null>(null);
@@ -200,13 +201,25 @@ export function TierListView() {
       );
     } else {
       // Cross-tier or unranked→tier — enforce constraints
-      finalAssignments = enforceAfterMove(
+      const charNames = new Map(characters.map((c) => [c.id, c.name]));
+      const result = enforceAfterMove(
         dbAssignments,
         relationships,
         active.id as string,
         overContainer,
         tierIds,
+        charNames,
       );
+
+      if (!result.ok) {
+        // Move blocked — revert to original state and show warning
+        setDragPreview(null);
+        setBlockMessage(result.reason);
+        setTimeout(() => setBlockMessage(null), 4000);
+        return;
+      }
+
+      finalAssignments = result.assignments;
     }
 
     // Show final state immediately (local), then persist to DB
@@ -216,6 +229,18 @@ export function TierListView() {
 
   return (
     <div>
+      {blockMessage && (
+        <div className="mb-3 rounded-lg border border-red-600/50 bg-red-900/20 px-4 py-2.5 flex items-center gap-3">
+          <span className="text-red-400 text-sm font-medium shrink-0">Move blocked</span>
+          <span className="text-red-300/80 text-xs">{blockMessage}</span>
+          <button
+            onClick={() => setBlockMessage(null)}
+            className="ml-auto text-red-400/60 hover:text-red-300 text-xs shrink-0"
+          >
+            x
+          </button>
+        </div>
+      )}
       <InconsistencyBanner inconsistencies={inconsistencies} />
 
       <DndContext
