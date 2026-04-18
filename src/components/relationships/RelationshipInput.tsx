@@ -1,40 +1,18 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
 import {
-  addRelationship,
+  addRelationshipsFromChain,
   addBulkRelationshipsFromStatements,
 } from '../../hooks/use-relationships';
 import { enforceAndAutoPlace } from '../../hooks/use-tier-list';
-import { fuzzyMatchCharacter, findBestMatch } from '../../lib/fuzzy-match';
-import type { Character, Confidence } from '../../types';
+import { fuzzyMatchCharacter } from '../../lib/fuzzy-match';
+import type { Character } from '../../types';
 
 interface Props {
   characters: Character[];
 }
 
-const OP_REGEX = /(>>|>\?|>=|<<|<\?|<=|>|<|=)/;
+const OP_REGEX = /(>=|<=|>|<|=)/;
 const MAX_SUGGESTIONS = 8;
-
-function mapOperator(
-  leftId: string,
-  rightId: string,
-  op: string,
-): { superiorId: string; inferiorId: string; confidence: Confidence } {
-  switch (op) {
-    case '>>':
-      return { superiorId: leftId, inferiorId: rightId, confidence: 'certain' };
-    case '<<':
-      return { superiorId: rightId, inferiorId: leftId, confidence: 'certain' };
-    case '>?':
-      return { superiorId: leftId, inferiorId: rightId, confidence: 'speculative' };
-    case '<?':
-      return { superiorId: rightId, inferiorId: leftId, confidence: 'speculative' };
-    case '<':
-    case '<=':
-      return { superiorId: rightId, inferiorId: leftId, confidence: 'likely' };
-    default:
-      return { superiorId: leftId, inferiorId: rightId, confidence: 'likely' };
-  }
-}
 
 // ──────────────────────────────────────────────────────────────
 // Smart autocomplete input (single / chain mode)
@@ -90,10 +68,7 @@ function SmartInput({ characters }: Props) {
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (!showDropdown || suggestions.length === 0) {
-      // If no dropdown, let Enter submit the form normally
-      return;
-    }
+    if (!showDropdown || suggestions.length === 0) return;
 
     switch (e.key) {
       case 'ArrowDown':
@@ -122,73 +97,18 @@ function SmartInput({ characters }: Props) {
     setSuccess(null);
     setShowDropdown(false);
 
-    // Parse chain: [name, op, name, op, name, ...]
-    const parts = input.split(OP_REGEX);
+    const result = await addRelationshipsFromChain(input, characters, note || undefined);
 
-    if (parts.length < 3) {
-      setError('Enter at least two characters with an operator (e.g. "Luffy > Zoro")');
-      return;
-    }
-
-    const errors: string[] = [];
-    let added = 0;
-
-    for (let i = 0; i < parts.length - 2; i += 2) {
-      const leftName = parts[i].trim();
-      const op = parts[i + 1];
-      const rightName = parts[i + 2].trim();
-
-      if (!leftName || !rightName) {
-        errors.push(`Missing character name around "${op}"`);
-        continue;
-      }
-
-      const left = findBestMatch(leftName, characters);
-      const right = findBestMatch(rightName, characters);
-
-      if (!left) {
-        errors.push(`Not found: "${leftName}"`);
-        continue;
-      }
-      if (!right) {
-        errors.push(`Not found: "${rightName}"`);
-        continue;
-      }
-      if (left.id === right.id) {
-        errors.push(`Cannot compare "${leftName}" to themselves`);
-        continue;
-      }
-
-      try {
-        if (op === '=') {
-          await addRelationship(left.id, right.id, 'likely', note || undefined);
-          await addRelationship(right.id, left.id, 'likely', note || undefined);
-          added += 2;
-        } else {
-          const mapped = mapOperator(left.id, right.id, op);
-          await addRelationship(mapped.superiorId, mapped.inferiorId, mapped.confidence, note || undefined);
-          added++;
-        }
-      } catch {
-        errors.push(`Failed: ${leftName} ${op} ${rightName}`);
-      }
-    }
-
-    if (added > 0) {
+    if (result.added > 0) {
       await enforceAndAutoPlace();
-    }
-
-    if (errors.length > 0) {
-      setError(errors.join('; '));
-    }
-    if (added > 0) {
-      const relCount = parts.filter((_, i) => i % 2 === 1).length;
-      setSuccess(
-        `${relCount} relationship${relCount > 1 ? 's' : ''} added!`,
-      );
+      setSuccess(`${result.added} relationship${result.added > 1 ? 's' : ''} added!`);
       setInput('');
       setNote('');
       setTimeout(() => setSuccess(null), 2500);
+    }
+
+    if (result.errors.length > 0) {
+      setError(result.errors.join('; '));
     }
   }
 
@@ -230,7 +150,7 @@ function SmartInput({ characters }: Props) {
                 key={char.id}
                 type="button"
                 onMouseDown={(e) => {
-                  e.preventDefault(); // Prevent blur before click fires
+                  e.preventDefault();
                   completeWithCharacter(char);
                 }}
                 onMouseEnter={() => setSelectedIdx(idx)}
@@ -271,8 +191,16 @@ function SmartInput({ characters }: Props) {
           Add
         </button>
         <span className="text-[10px] text-gray-500 leading-tight">
-          Tab to complete &middot; chains: A &gt; B &gt; C &middot; operators: &gt; &gt;= = &lt;= &lt;
+          Tab to complete &middot; chains: A &gt; B &gt; C
         </span>
+      </div>
+
+      <div className="text-[10px] text-gray-600 flex gap-3">
+        <span><code className="text-gray-400">&gt;</code> higher tier</span>
+        <span><code className="text-gray-400">&gt;=</code> same or higher</span>
+        <span><code className="text-gray-400">=</code> same tier</span>
+        <span><code className="text-gray-400">&lt;=</code> same or lower</span>
+        <span><code className="text-gray-400">&lt;</code> lower tier</span>
       </div>
 
       {error && <p className="text-xs text-red-400">{error}</p>}
@@ -319,7 +247,7 @@ function BulkInput({ characters }: Props) {
           setBulkInput(e.target.value);
           setBulkResult(null);
         }}
-        placeholder={`Paste relationships, one per line:\nLuffy >> Kaido\nZoro > King\nSanji > Queen\n\nLines starting with # are ignored`}
+        placeholder={`Paste relationships, one per line:\nLuffy > Kaido\nZoro >= King\nA > B > C > D\n\nLines starting with # are ignored`}
         rows={8}
         className="w-full bg-[#1a1a3e] border border-gray-600 rounded px-3 py-2 text-sm text-white
                    placeholder-gray-500 focus:border-blue-400 focus:outline-none resize-y font-mono"

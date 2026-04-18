@@ -123,14 +123,13 @@ export function CharacterDetail({ characterId, onClose }: Props) {
                   >
                     {isSuper ? (
                       <>
-                        <span className="text-green-400">&gt;</span> {otherName}
+                        <span className="text-green-400 font-mono">{rel.strict ? '>' : '>='}</span> {otherName}
                       </>
                     ) : (
                       <>
-                        <span className="text-red-400">&lt;</span> {otherName}
+                        <span className="text-red-400 font-mono">{rel.strict ? '<' : '<='}</span> {otherName}
                       </>
                     )}
-                    <span className="text-gray-500 ml-1">({rel.confidence})</span>
                   </div>
                 );
               })}

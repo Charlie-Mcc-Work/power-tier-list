@@ -1,67 +1,85 @@
-import type { Confidence } from '../types';
-
-export interface ParsedRelationship {
+export interface ParsedPair {
   superiorName: string;
   inferiorName: string;
-  confidence: Confidence;
+  strict: boolean;
+}
+
+export interface ParsedChain {
+  pairs: ParsedPair[];
 }
 
 export interface ParseError {
   error: string;
 }
 
-export type ParseResult = ParsedRelationship | ParseError;
+export type ParseResult = ParsedChain | ParseError;
 
 export function isParseError(result: ParseResult): result is ParseError {
   return 'error' in result;
 }
 
+const OP_REGEX = /(>=|<=|>|<|=)/;
+
 /**
- * Parse relationship statements:
- *   "Mihawk >> Shanks"  → certain (Mihawk stronger)
- *   "Mihawk > Shanks"   → likely
- *   "Mihawk >? Shanks"  → speculative
- *   "Shanks < Mihawk"   → likely (Mihawk stronger)
- *   "Shanks << Mihawk"  → certain (Mihawk stronger)
- *   "Shanks <? Mihawk"  → speculative (Mihawk stronger)
+ * Parse a relationship statement (supports chains).
+ *
+ *   "Luffy > Zoro"          → one strict pair
+ *   "Luffy >= Zoro"         → one non-strict pair
+ *   "Luffy = Zoro"          → bidirectional (two non-strict pairs)
+ *   "A > B > C > D"         → three strict pairs
+ *   "A >= B > C"            → one non-strict + one strict
+ *
+ * Operators:
+ *   >   strictly stronger (must be in a higher tier)
+ *   >=  at least as strong (same tier OK)
+ *   =   equal (same tier — creates two >= relationships)
+ *   <=  at most as strong (reverse of >=)
+ *   <   strictly weaker (reverse of >)
  */
-export function parseRelationshipStatement(input: string): ParseResult {
+export function parseChain(input: string): ParseResult {
   const trimmed = input.trim();
   if (!trimmed) return { error: 'Empty input' };
 
-  // Try >> (certain), >? (speculative), > (likely)
-  const greaterPatterns: [RegExp, Confidence][] = [
-    [/^(.+?)\s*>>\s*(.+)$/, 'certain'],
-    [/^(.+?)\s*>\?\s*(.+)$/, 'speculative'],
-    [/^(.+?)\s*>\s*(.+)$/, 'likely'],
-  ];
+  const parts = trimmed.split(OP_REGEX);
 
-  for (const [pattern, confidence] of greaterPatterns) {
-    const match = trimmed.match(pattern);
-    if (match) {
-      const superior = match[1].trim();
-      const inferior = match[2].trim();
-      if (!superior || !inferior) return { error: 'Missing character name' };
-      return { superiorName: superior, inferiorName: inferior, confidence };
+  if (parts.length < 3 || parts.length % 2 === 0) {
+    return { error: 'Use format: "A > B" or "A > B > C"' };
+  }
+
+  const pairs: ParsedPair[] = [];
+
+  for (let i = 0; i < parts.length - 2; i += 2) {
+    const left = parts[i].trim();
+    const op = parts[i + 1];
+    const right = parts[i + 2].trim();
+
+    if (!left || !right) {
+      return { error: `Missing character name around "${op}"` };
+    }
+
+    switch (op) {
+      case '>':
+        pairs.push({ superiorName: left, inferiorName: right, strict: true });
+        break;
+      case '>=':
+        pairs.push({ superiorName: left, inferiorName: right, strict: false });
+        break;
+      case '=':
+        pairs.push({ superiorName: left, inferiorName: right, strict: false });
+        pairs.push({ superiorName: right, inferiorName: left, strict: false });
+        break;
+      case '<=':
+        pairs.push({ superiorName: right, inferiorName: left, strict: false });
+        break;
+      case '<':
+        pairs.push({ superiorName: right, inferiorName: left, strict: true });
+        break;
     }
   }
 
-  // Try << (certain), <? (speculative), < (likely) — reversed direction
-  const lesserPatterns: [RegExp, Confidence][] = [
-    [/^(.+?)\s*<<\s*(.+)$/, 'certain'],
-    [/^(.+?)\s*<\?\s*(.+)$/, 'speculative'],
-    [/^(.+?)\s*<\s*(.+)$/, 'likely'],
-  ];
-
-  for (const [pattern, confidence] of lesserPatterns) {
-    const match = trimmed.match(pattern);
-    if (match) {
-      const inferior = match[1].trim();
-      const superior = match[2].trim();
-      if (!superior || !inferior) return { error: 'Missing character name' };
-      return { superiorName: superior, inferiorName: inferior, confidence };
-    }
+  if (pairs.length === 0) {
+    return { error: 'No valid relationships found' };
   }
 
-  return { error: 'Could not parse. Use format: "Character A > Character B"' };
+  return { pairs };
 }

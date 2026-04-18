@@ -34,13 +34,12 @@ export interface TierList {
   updatedAt: number;
 }
 
-export type Confidence = 'certain' | 'likely' | 'speculative';
-
 export interface Relationship {
   id: string;
   superiorId: string;
   inferiorId: string;
-  confidence: Confidence;
+  /** true = must be in a strictly higher tier (>), false = same tier OK (>=) */
+  strict: boolean;
   evidenceIds: string[];
   note?: string;
   createdAt: number;

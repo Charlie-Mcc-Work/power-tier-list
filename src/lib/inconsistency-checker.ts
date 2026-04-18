@@ -13,23 +13,26 @@ export function findInconsistencies(
   const charMap = new Map(characters.map((c) => [c.id, c]));
   const assignmentMap = new Map(assignments.map((a) => [a.characterId, a]));
 
-  // Check for placement inconsistencies: superior should be in same or higher tier than inferior
   for (const rel of relationships) {
     const supAssign = assignmentMap.get(rel.superiorId);
     const infAssign = assignmentMap.get(rel.inferiorId);
 
-    if (!supAssign || !infAssign) continue; // one or both unranked, no inconsistency
+    if (!supAssign || !infAssign) continue;
 
     const supTierIdx = tierIndex.get(supAssign.tier)!;
     const infTierIdx = tierIndex.get(infAssign.tier)!;
+    const minGap = (rel.strict ?? false) ? 1 : 0;
+    const op = rel.strict ? '>' : '>=';
 
-    // Lower index = higher tier (S=0, A=1, etc.)
-    if (supTierIdx > infTierIdx) {
+    // supTierIdx + minGap should be <= infTierIdx
+    if (supTierIdx + minGap > infTierIdx) {
       const supName = charMap.get(rel.superiorId)?.name ?? 'Unknown';
       const infName = charMap.get(rel.inferiorId)?.name ?? 'Unknown';
       inconsistencies.push({
         type: 'placement',
-        message: `${supName} is ranked below ${infName} in tiers, but relationships say ${supName} > ${infName}`,
+        message: `${supName} ${op} ${infName} but ${supName} is ${
+          supTierIdx === infTierIdx ? 'in the same tier as' : 'ranked below'
+        } ${infName}`,
         characterIds: [rel.superiorId, rel.inferiorId],
         relationshipIds: [rel.id],
       });

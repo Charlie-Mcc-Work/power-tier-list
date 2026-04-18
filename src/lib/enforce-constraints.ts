@@ -12,14 +12,19 @@ function toTier(idx: number): TierRank {
   return TIER_RANKS[Math.max(0, Math.min(idx, MAX_IDX))];
 }
 
+interface Edge {
+  strict: boolean;
+}
+
 function buildGraphPair(relationships: Relationship[]) {
-  const fwd = new Map<string, Set<string>>(); // superior -> inferiors
-  const rev = new Map<string, Set<string>>(); // inferior -> superiors
+  const fwd = new Map<string, Map<string, Edge>>(); // superior -> {inferior -> edge}
+  const rev = new Map<string, Map<string, Edge>>(); // inferior -> {superior -> edge}
   for (const rel of relationships) {
-    if (!fwd.has(rel.superiorId)) fwd.set(rel.superiorId, new Set());
-    fwd.get(rel.superiorId)!.add(rel.inferiorId);
-    if (!rev.has(rel.inferiorId)) rev.set(rel.inferiorId, new Set());
-    rev.get(rel.inferiorId)!.add(rel.superiorId);
+    const strict = rel.strict ?? false;
+    if (!fwd.has(rel.superiorId)) fwd.set(rel.superiorId, new Map());
+    fwd.get(rel.superiorId)!.set(rel.inferiorId, { strict });
+    if (!rev.has(rel.inferiorId)) rev.set(rel.inferiorId, new Map());
+    rev.get(rel.inferiorId)!.set(rel.superiorId, { strict });
   }
   return { fwd, rev };
 }
@@ -28,10 +33,8 @@ function buildGraphPair(relationships: Relationship[]) {
  * After a user moves a character to a new tier, cascade all relationship
  * constraints so the tier list stays consistent.
  *
- * Algorithm:
- * 1. Anchor the moved character at the target tier.
- * 2. BFS down through inferiors: push any that are above their superiors down.
- * 3. BFS up through superiors: push any that are below their inferiors up.
+ * For strict relationships (>), the inferior must be in a strictly lower tier.
+ * For non-strict (>=), same tier is allowed.
  */
 export function enforceAfterMove(
   currentAssignments: TierAssignment[],
@@ -40,7 +43,6 @@ export function enforceAfterMove(
   targetTier: TierRank,
 ): TierAssignment[] {
   if (relationships.length === 0) {
-    // No constraints — simple move
     const result = currentAssignments.filter((a) => a.characterId !== movedCharId);
     const tierItems = result.filter((a) => a.tier === targetTier);
     result.push({ characterId: movedCharId, tier: targetTier, position: tierItems.length });
@@ -55,46 +57,46 @@ export function enforceAfterMove(
 
   const { fwd, rev } = buildGraphPair(relationships);
 
-  // Phase 1: Push descendants down (handles when anchor moved down)
+  // Phase 1: Push descendants down
   {
-    const queue = [...(fwd.get(movedCharId) ?? [])];
-    while (queue.length > 0) {
-      const node = queue.shift()!;
-      const cur = tierMap.get(node);
-      if (cur == null) continue; // unranked — skip
-
-      // Must be at or below ALL superiors
-      let reqMin = 0;
-      for (const sup of rev.get(node) ?? []) {
-        const si = tierMap.get(sup);
-        if (si != null) reqMin = Math.max(reqMin, si);
-      }
-
-      if (cur < reqMin) {
-        tierMap.set(node, Math.min(reqMin, MAX_IDX));
-        for (const child of fwd.get(node) ?? []) queue.push(child);
-      }
-    }
-  }
-
-  // Phase 2: Push ancestors up (handles when anchor moved up)
-  {
-    const queue = [...(rev.get(movedCharId) ?? [])];
+    const queue = [...(fwd.get(movedCharId)?.keys() ?? [])];
     while (queue.length > 0) {
       const node = queue.shift()!;
       const cur = tierMap.get(node);
       if (cur == null) continue;
 
-      // Must be at or above ALL inferiors
+      // Must be below all superiors (with gap for strict)
+      let reqMin = 0;
+      for (const [sup, edge] of rev.get(node) ?? new Map()) {
+        const si = tierMap.get(sup);
+        if (si != null) reqMin = Math.max(reqMin, si + (edge.strict ? 1 : 0));
+      }
+
+      if (cur < reqMin) {
+        tierMap.set(node, Math.min(reqMin, MAX_IDX));
+        for (const child of fwd.get(node)?.keys() ?? []) queue.push(child);
+      }
+    }
+  }
+
+  // Phase 2: Push ancestors up
+  {
+    const queue = [...(rev.get(movedCharId)?.keys() ?? [])];
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      const cur = tierMap.get(node);
+      if (cur == null) continue;
+
+      // Must be above all inferiors (with gap for strict)
       let reqMax = MAX_IDX;
-      for (const inf of fwd.get(node) ?? []) {
+      for (const [inf, edge] of fwd.get(node) ?? new Map()) {
         const ii = tierMap.get(inf);
-        if (ii != null) reqMax = Math.min(reqMax, ii);
+        if (ii != null) reqMax = Math.min(reqMax, ii - (edge.strict ? 1 : 0));
       }
 
       if (cur > reqMax) {
         tierMap.set(node, Math.max(reqMax, 0));
-        for (const parent of rev.get(node) ?? []) queue.push(parent);
+        for (const parent of rev.get(node)?.keys() ?? []) queue.push(parent);
       }
     }
   }
@@ -104,7 +106,7 @@ export function enforceAfterMove(
 
 /**
  * Auto-place unranked characters that have relationships, then enforce
- * all constraints across the board. Called after adding relationships.
+ * all constraints across the board.
  */
 export function autoPlaceAndEnforce(
   currentAssignments: TierAssignment[],
@@ -130,7 +132,6 @@ export function autoPlaceAndEnforce(
   const unranked = [...inRels].filter((id) => !tierMap.has(id));
 
   if (unranked.length > 0) {
-    // Try to place each based on already-placed neighbors
     const remaining = new Set(unranked);
     let prevSize = remaining.size + 1;
 
@@ -140,20 +141,20 @@ export function autoPlaceAndEnforce(
         let lo = 0;
         let hasConstraint = false;
 
-        for (const sup of rev.get(charId) ?? []) {
+        for (const [sup, edge] of rev.get(charId) ?? new Map()) {
           const si = tierMap.get(sup);
           if (si != null) {
-            lo = Math.max(lo, si);
+            lo = Math.max(lo, si + (edge.strict ? 1 : 0));
             hasConstraint = true;
           }
         }
-        for (const inf of fwd.get(charId) ?? []) {
+        for (const [inf] of fwd.get(charId) ?? new Map()) {
           const ii = tierMap.get(inf);
           if (ii != null) hasConstraint = true;
         }
 
         if (hasConstraint) {
-          tierMap.set(charId, lo);
+          tierMap.set(charId, Math.min(lo, MAX_IDX));
           remaining.delete(charId);
         }
       }
@@ -168,7 +169,6 @@ export function autoPlaceAndEnforce(
         const numTiers = TIER_RANKS.length;
         const sortedLayers = [...layers.entries()].sort(([a], [b]) => a - b);
         for (const [layerIdx, charIds] of sortedLayers) {
-          // Spread layers proportionally across tiers
           const tierIdx = Math.min(
             Math.floor((layerIdx / Math.max(numLayers, 1)) * numTiers),
             MAX_IDX,
@@ -181,7 +181,6 @@ export function autoPlaceAndEnforce(
           }
         }
       } else {
-        // Cycles present — place at C tier
         for (const charId of remaining) {
           tierMap.set(charId, 3);
         }
@@ -189,7 +188,7 @@ export function autoPlaceAndEnforce(
     }
   }
 
-  // Enforce all constraints (fixpoint: push inferiors down)
+  // Enforce all constraints (fixpoint: push inferiors down, respecting strict gaps)
   let changed = true;
   let iter = 0;
   while (changed && iter < 1000) {
@@ -199,8 +198,9 @@ export function autoPlaceAndEnforce(
       const si = tierMap.get(rel.superiorId);
       const ii = tierMap.get(rel.inferiorId);
       if (si == null || ii == null) continue;
-      if (si > ii) {
-        tierMap.set(rel.inferiorId, Math.min(si, MAX_IDX));
+      const minGap = (rel.strict ?? false) ? 1 : 0;
+      if (si + minGap > ii) {
+        tierMap.set(rel.inferiorId, Math.min(si + minGap, MAX_IDX));
         changed = true;
       }
     }
@@ -209,10 +209,6 @@ export function autoPlaceAndEnforce(
   return rebuildAssignments(tierMap, currentAssignments);
 }
 
-/**
- * Rebuild TierAssignment[] from the tier map, preserving existing
- * within-tier ordering for characters that didn't change tier.
- */
 function rebuildAssignments(
   tierMap: Map<string, number>,
   originalAssignments: TierAssignment[],
@@ -222,7 +218,6 @@ function rebuildAssignments(
     origByChar.set(a.characterId, a);
   }
 
-  // Group by tier index
   const byTier = new Map<number, string[]>();
   for (const [charId, idx] of tierMap) {
     if (!byTier.has(idx)) byTier.set(idx, []);
@@ -233,8 +228,6 @@ function rebuildAssignments(
 
   for (const [idx, charIds] of byTier) {
     const tier = toTier(idx);
-
-    // Characters that were already in this tier vs newly moved here
     const stayed: string[] = [];
     const moved: string[] = [];
 
@@ -247,7 +240,6 @@ function rebuildAssignments(
       }
     }
 
-    // Preserve existing positions for characters that stayed
     stayed.sort((a, b) => {
       const ap = origByChar.get(a)?.position ?? 0;
       const bp = origByChar.get(b)?.position ?? 0;
