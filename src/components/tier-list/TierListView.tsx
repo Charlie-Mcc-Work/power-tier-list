@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -32,20 +32,20 @@ export function TierListView() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [blockMessage, setBlockMessage] = useState<string | null>(null);
   const [dragStartContainer, setDragStartContainer] = useState<string | null>(null);
-  // Local preview state during drag — avoids async DB writes mid-drag
   const [dragPreview, setDragPreview] = useState<TierAssignment[] | null>(null);
+  // Guard against re-entrant dragOver calls
+  const dragOverBusy = useRef(false);
 
   const tierDefs = tierList?.tierDefs ?? DEFAULT_TIER_DEFS;
   const tierIds = useMemo(() => tierDefs.map((t) => t.id), [tierDefs]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 5 },
+      activationConstraint: { distance: 8 },
     }),
   );
 
   const dbAssignments = tierList?.tiers ?? [];
-  // During drag, render from local state; otherwise from DB
   const assignments = dragPreview ?? dbAssignments;
 
   // Clear local preview once DB catches up after drop
@@ -116,44 +116,50 @@ export function TierListView() {
   }
 
   function handleDragStart(event: DragStartEvent) {
-    const charId = event.active.id as string;
-    setActiveId(charId);
-    setDragStartContainer(findContainer(charId));
-    // Snapshot current assignments for local editing during drag
-    setDragPreview([...dbAssignments]);
+    try {
+      const charId = event.active.id as string;
+      setActiveId(charId);
+      setDragStartContainer(findContainer(charId));
+      setDragPreview([...dbAssignments]);
+    } catch {
+      setActiveId(null);
+      setDragPreview(null);
+    }
   }
 
   function handleDragOver(event: DragOverEvent) {
-    if (!dragPreview) return;
+    // Guard: skip if already processing or no preview
+    if (dragOverBusy.current || !dragPreview) return;
     const { active, over } = event;
     if (!over) return;
 
-    const activeContainer = findContainer(active.id as string);
-    const overContainer = getContainerFromDroppableId(over.id as string);
+    try {
+      dragOverBusy.current = true;
 
-    if (activeContainer === overContainer) return;
+      const activeContainer = findContainer(active.id as string);
+      const overContainer = getContainerFromDroppableId(over.id as string);
 
-    // Move between containers in LOCAL state (no DB write)
-    const updated = dragPreview.filter(
-      (a) => a.characterId !== (active.id as string),
-    );
+      if (activeContainer === overContainer) return;
 
-    if (overContainer !== 'unranked') {
-      const overCharIdx = updated.findIndex(
-        (a) => a.characterId === (over.id as string) && a.tier === overContainer,
+      const updated = dragPreview.filter(
+        (a) => a.characterId !== (active.id as string),
       );
-      const position = overCharIdx >= 0
-        ? updated[overCharIdx].position
-        : updated.filter((a) => a.tier === overContainer).length;
 
-      updated.push({
-        characterId: active.id as string,
-        tier: overContainer,
-        position,
-      });
+      if (overContainer !== 'unranked') {
+        const tierItems = updated.filter((a) => a.tier === overContainer);
+        updated.push({
+          characterId: active.id as string,
+          tier: overContainer,
+          position: tierItems.length,
+        });
+      }
+
+      setDragPreview(updated);
+    } catch {
+      // Don't crash on drag-over errors
+    } finally {
+      dragOverBusy.current = false;
     }
-
-    setDragPreview(updated);
   }
 
   function handleDragEnd(event: DragEndEvent) {
@@ -167,64 +173,64 @@ export function TierListView() {
       return;
     }
 
-    const overContainer = getContainerFromDroppableId(over.id as string);
+    try {
+      const overContainer = getContainerFromDroppableId(over.id as string);
+      let finalAssignments: TierAssignment[];
 
-    let finalAssignments: TierAssignment[];
+      if (origContainer === overContainer && origContainer !== 'unranked') {
+        // Within-tier reorder
+        const tier = origContainer;
+        const tierCharIds = dragPreview
+          .filter((a) => a.tier === tier)
+          .sort((a, b) => a.position - b.position)
+          .map((a) => a.characterId)
+          .filter((id) => charMap.has(id));
 
-    if (origContainer === overContainer && origContainer !== 'unranked') {
-      // Within-tier reorder
-      const tier = origContainer;
-      const tierCharIds = dragPreview
-        .filter((a) => a.tier === tier)
-        .sort((a, b) => a.position - b.position)
-        .map((a) => a.characterId)
-        .filter((id) => charMap.has(id));
+        const oldIndex = tierCharIds.indexOf(active.id as string);
+        const overIndex = tierCharIds.indexOf(over.id as string);
 
-      const oldIndex = tierCharIds.indexOf(active.id as string);
-      const overIndex = tierCharIds.indexOf(over.id as string);
-
-      if (oldIndex !== -1 && overIndex !== -1 && oldIndex !== overIndex) {
-        const reordered = arrayMove(tierCharIds, oldIndex, overIndex);
-        finalAssignments = dragPreview.filter((a) => a.tier !== tier);
-        reordered.forEach((id, idx) => {
-          finalAssignments.push({ characterId: id, tier, position: idx });
-        });
-        // Re-enforce within-tier ordering from relationships
-        finalAssignments = enforceWithinTierOrder(finalAssignments, relationships);
+        if (oldIndex !== -1 && overIndex !== -1 && oldIndex !== overIndex) {
+          const reordered = arrayMove(tierCharIds, oldIndex, overIndex);
+          finalAssignments = dragPreview.filter((a) => a.tier !== tier);
+          reordered.forEach((id, idx) => {
+            finalAssignments.push({ characterId: id, tier, position: idx });
+          });
+          finalAssignments = enforceWithinTierOrder(finalAssignments, relationships);
+        } else {
+          finalAssignments = dragPreview;
+        }
+      } else if (overContainer === 'unranked') {
+        finalAssignments = dragPreview.filter(
+          (a) => a.characterId !== (active.id as string),
+        );
       } else {
-        finalAssignments = dragPreview;
-      }
-    } else if (overContainer === 'unranked') {
-      // Drop to unranked
-      finalAssignments = dragPreview.filter(
-        (a) => a.characterId !== (active.id as string),
-      );
-    } else {
-      // Cross-tier or unranked→tier — enforce constraints
-      const charNames = new Map(characters.map((c) => [c.id, c.name]));
-      const result = enforceAfterMove(
-        dbAssignments,
-        relationships,
-        active.id as string,
-        overContainer,
-        tierIds,
-        charNames,
-      );
+        // Cross-tier or unranked→tier — enforce constraints
+        const charNames = new Map(characters.map((c) => [c.id, c.name]));
+        const result = enforceAfterMove(
+          dbAssignments,
+          relationships,
+          active.id as string,
+          overContainer,
+          tierIds,
+          charNames,
+        );
 
-      if (!result.ok) {
-        // Move blocked — revert to original state and show warning
-        setDragPreview(null);
-        setBlockMessage(result.reason);
-        setTimeout(() => setBlockMessage(null), 4000);
-        return;
+        if (!result.ok) {
+          setDragPreview(null);
+          setBlockMessage(result.reason);
+          setTimeout(() => setBlockMessage(null), 4000);
+          return;
+        }
+
+        finalAssignments = result.assignments;
       }
 
-      finalAssignments = result.assignments;
+      setDragPreview(finalAssignments);
+      updateTierAssignments(finalAssignments);
+    } catch {
+      // On any error, revert to DB state
+      setDragPreview(null);
     }
-
-    // Show final state immediately (local), then persist to DB
-    setDragPreview(finalAssignments);
-    updateTierAssignments(finalAssignments);
   }
 
   return (
