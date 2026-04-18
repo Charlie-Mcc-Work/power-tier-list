@@ -24,6 +24,7 @@ import { findInconsistencies } from '../../lib/inconsistency-checker';
 import { enforceAfterMove, enforceWithinTierOrder } from '../../lib/enforce-constraints';
 import type { Character, TierAssignment } from '../../types';
 import { DEFAULT_TIER_DEFS } from '../../types';
+import { log } from '../../lib/logger';
 
 export function TierListView() {
   const characters = useCharacters();
@@ -118,17 +119,19 @@ export function TierListView() {
   function handleDragStart(event: DragStartEvent) {
     try {
       const charId = event.active.id as string;
+      const container = findContainer(charId);
+      log.info('drag', `start: ${charMap.get(charId)?.name ?? charId} from ${container}`);
       setActiveId(charId);
-      setDragStartContainer(findContainer(charId));
+      setDragStartContainer(container);
       setDragPreview([...dbAssignments]);
-    } catch {
+    } catch (err) {
+      log.error('drag', 'dragStart crashed', { error: String(err), stack: (err as Error)?.stack });
       setActiveId(null);
       setDragPreview(null);
     }
   }
 
   function handleDragOver(event: DragOverEvent) {
-    // Guard: skip if already processing or no preview
     if (dragOverBusy.current || !dragPreview) return;
     const { active, over } = event;
     if (!over) return;
@@ -140,6 +143,8 @@ export function TierListView() {
       const overContainer = getContainerFromDroppableId(over.id as string);
 
       if (activeContainer === overContainer) return;
+
+      log.info('drag', `over: ${activeContainer} → ${overContainer}`);
 
       const updated = dragPreview.filter(
         (a) => a.characterId !== (active.id as string),
@@ -155,8 +160,8 @@ export function TierListView() {
       }
 
       setDragPreview(updated);
-    } catch {
-      // Don't crash on drag-over errors
+    } catch (err) {
+      log.error('drag', 'dragOver crashed', { error: String(err), stack: (err as Error)?.stack, activeId: active.id, overId: over.id });
     } finally {
       dragOverBusy.current = false;
     }
@@ -169,16 +174,19 @@ export function TierListView() {
     setDragStartContainer(null);
 
     if (!over || !dragPreview) {
+      log.info('drag', 'end: cancelled (no target or no preview)');
       setDragPreview(null);
       return;
     }
 
     try {
       const overContainer = getContainerFromDroppableId(over.id as string);
+      const charName = charMap.get(active.id as string)?.name ?? active.id;
+      log.info('drag', `end: ${charName} from ${origContainer} → ${overContainer}`);
+
       let finalAssignments: TierAssignment[];
 
       if (origContainer === overContainer && origContainer !== 'unranked') {
-        // Within-tier reorder
         const tier = origContainer;
         const tierCharIds = dragPreview
           .filter((a) => a.tier === tier)
@@ -190,6 +198,7 @@ export function TierListView() {
         const overIndex = tierCharIds.indexOf(over.id as string);
 
         if (oldIndex !== -1 && overIndex !== -1 && oldIndex !== overIndex) {
+          log.info('drag', `reorder within ${tier}: idx ${oldIndex} → ${overIndex}`);
           const reordered = arrayMove(tierCharIds, oldIndex, overIndex);
           finalAssignments = dragPreview.filter((a) => a.tier !== tier);
           reordered.forEach((id, idx) => {
@@ -200,11 +209,11 @@ export function TierListView() {
           finalAssignments = dragPreview;
         }
       } else if (overContainer === 'unranked') {
+        log.info('drag', `${charName} → unranked`);
         finalAssignments = dragPreview.filter(
           (a) => a.characterId !== (active.id as string),
         );
       } else {
-        // Cross-tier or unranked→tier — enforce constraints
         const charNames = new Map(characters.map((c) => [c.id, c.name]));
         const result = enforceAfterMove(
           dbAssignments,
@@ -216,19 +225,21 @@ export function TierListView() {
         );
 
         if (!result.ok) {
+          log.warn('drag', `blocked: ${result.reason}`);
           setDragPreview(null);
           setBlockMessage(result.reason);
           setTimeout(() => setBlockMessage(null), 4000);
           return;
         }
 
+        log.info('drag', `enforced: ${result.assignments.length} assignments`);
         finalAssignments = result.assignments;
       }
 
       setDragPreview(finalAssignments);
       updateTierAssignments(finalAssignments);
-    } catch {
-      // On any error, revert to DB state
+    } catch (err) {
+      log.error('drag', 'dragEnd crashed', { error: String(err), stack: (err as Error)?.stack, activeId: active.id, overId: over.id, origContainer });
       setDragPreview(null);
     }
   }

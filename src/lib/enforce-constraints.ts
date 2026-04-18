@@ -1,4 +1,5 @@
 import type { Relationship, TierAssignment } from '../types';
+import { log } from './logger';
 
 function toIdx(tierId: string, tierIds: string[]): number {
   const idx = tierIds.indexOf(tierId);
@@ -59,6 +60,13 @@ export function enforceAfterMove(
     tierMap.set(a.characterId, toIdx(a.tier, tierIds));
   }
 
+  const movedName = charNames?.get(movedCharId) ?? movedCharId.slice(0, 8);
+  log.info('enforce', `move ${movedName} → tier "${targetTier}" (idx ${toIdx(targetTier, tierIds)})`, {
+    totalAssignments: currentAssignments.length,
+    totalRelationships: relationships.length,
+    numTiers: tierIds.length,
+  });
+
   // Place at target — no pre-validation. Let the cascade handle everything.
   tierMap.set(movedCharId, toIdx(targetTier, tierIds));
 
@@ -79,7 +87,9 @@ export function enforceAfterMove(
       }
 
       if (cur < reqMin) {
-        tierMap.set(node, Math.min(reqMin, maxIdx));
+        const newIdx = Math.min(reqMin, maxIdx);
+        log.info('enforce', `push down: ${charNames?.get(node) ?? node.slice(0, 8)} tier ${cur} → ${newIdx}`);
+        tierMap.set(node, newIdx);
         for (const child of fwd.get(node)?.keys() ?? []) queue.push(child);
       }
     }
@@ -100,7 +110,9 @@ export function enforceAfterMove(
       }
 
       if (cur > reqMax) {
-        tierMap.set(node, Math.max(reqMax, 0));
+        const newIdx = Math.max(reqMax, 0);
+        log.info('enforce', `push up: ${charNames?.get(node) ?? node.slice(0, 8)} tier ${cur} → ${newIdx}`);
+        tierMap.set(node, newIdx);
         for (const parent of rev.get(node)?.keys() ?? []) queue.push(parent);
       }
     }
