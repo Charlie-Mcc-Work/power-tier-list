@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -8,6 +8,7 @@ import {
   useSensors,
   type DragStartEvent,
   type DragEndEvent,
+  type DragOverEvent,
 } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
 import { TierRow } from './TierRow';
@@ -30,6 +31,8 @@ export function TierListView() {
   const relationships = useRelationships();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [dragStartContainer, setDragStartContainer] = useState<string | null>(null);
+  // Local preview state during drag — avoids async DB writes mid-drag
+  const [dragPreview, setDragPreview] = useState<TierAssignment[] | null>(null);
 
   const tierDefs = tierList?.tierDefs ?? DEFAULT_TIER_DEFS;
   const tierIds = useMemo(() => tierDefs.map((t) => t.id), [tierDefs]);
@@ -40,7 +43,17 @@ export function TierListView() {
     }),
   );
 
-  const assignments = tierList?.tiers ?? [];
+  const dbAssignments = tierList?.tiers ?? [];
+  // During drag, render from local state; otherwise from DB
+  const assignments = dragPreview ?? dbAssignments;
+
+  // Clear local preview once DB catches up after drop
+  useEffect(() => {
+    if (dragPreview && !activeId) {
+      setDragPreview(null);
+    }
+  }, [tierList, activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const assignmentMap = useMemo(
     () => new Map(assignments.map((a) => [a.characterId, a])),
     [assignments],
@@ -83,8 +96,8 @@ export function TierListView() {
   );
 
   const inconsistencies = useMemo(
-    () => findInconsistencies(assignments, relationships, characters, tierIds),
-    [assignments, relationships, characters, tierIds],
+    () => findInconsistencies(dbAssignments, relationships, characters, tierIds),
+    [dbAssignments, relationships, characters, tierIds],
   );
 
   const activeCharacter = activeId ? charMap.get(activeId) : undefined;
@@ -105,55 +118,98 @@ export function TierListView() {
     const charId = event.active.id as string;
     setActiveId(charId);
     setDragStartContainer(findContainer(charId));
+    // Snapshot current assignments for local editing during drag
+    setDragPreview([...dbAssignments]);
   }
 
-  // No handleDragOver — all DB writes happen on drop only.
-  // This prevents layout shifts, scroll jumps, and visual jank during drag.
-  // The DragOverlay follows the cursor, and tier rows highlight via isOver.
+  function handleDragOver(event: DragOverEvent) {
+    if (!dragPreview) return;
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeContainer = findContainer(active.id as string);
+    const overContainer = getContainerFromDroppableId(over.id as string);
+
+    if (activeContainer === overContainer) return;
+
+    // Move between containers in LOCAL state (no DB write)
+    const updated = dragPreview.filter(
+      (a) => a.characterId !== (active.id as string),
+    );
+
+    if (overContainer !== 'unranked') {
+      const overCharIdx = updated.findIndex(
+        (a) => a.characterId === (over.id as string) && a.tier === overContainer,
+      );
+      const position = overCharIdx >= 0
+        ? updated[overCharIdx].position
+        : updated.filter((a) => a.tier === overContainer).length;
+
+      updated.push({
+        characterId: active.id as string,
+        tier: overContainer,
+        position,
+      });
+    }
+
+    setDragPreview(updated);
+  }
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     const origContainer = dragStartContainer;
     setActiveId(null);
     setDragStartContainer(null);
-    if (!over) return;
+
+    if (!over || !dragPreview) {
+      setDragPreview(null);
+      return;
+    }
 
     const overContainer = getContainerFromDroppableId(over.id as string);
 
+    let finalAssignments: TierAssignment[];
+
     if (origContainer === overContainer && origContainer !== 'unranked') {
-      // Reorder within same tier
+      // Within-tier reorder
       const tier = origContainer;
-      const tierCharIds = getCharacterIdsForTier(tier);
+      const tierCharIds = dragPreview
+        .filter((a) => a.tier === tier)
+        .sort((a, b) => a.position - b.position)
+        .map((a) => a.characterId)
+        .filter((id) => charMap.has(id));
+
       const oldIndex = tierCharIds.indexOf(active.id as string);
       const overIndex = tierCharIds.indexOf(over.id as string);
 
       if (oldIndex !== -1 && overIndex !== -1 && oldIndex !== overIndex) {
         const reordered = arrayMove(tierCharIds, oldIndex, overIndex);
-        const newAssignments: TierAssignment[] = assignments.filter(
-          (a) => a.tier !== tier,
-        );
+        finalAssignments = dragPreview.filter((a) => a.tier !== tier);
         reordered.forEach((id, idx) => {
-          newAssignments.push({ characterId: id, tier, position: idx });
+          finalAssignments.push({ characterId: id, tier, position: idx });
         });
-        updateTierAssignments(newAssignments);
+      } else {
+        finalAssignments = dragPreview;
       }
     } else if (overContainer === 'unranked') {
-      // Drop to unranked — remove from tier
-      const newAssignments = assignments.filter(
+      // Drop to unranked
+      finalAssignments = dragPreview.filter(
         (a) => a.characterId !== (active.id as string),
       );
-      updateTierAssignments(newAssignments);
-    } else if (overContainer !== origContainer) {
-      // Cross-tier move or from unranked — enforce constraints
-      const enforced = enforceAfterMove(
-        assignments,
+    } else {
+      // Cross-tier or unranked→tier — enforce constraints
+      finalAssignments = enforceAfterMove(
+        dbAssignments,
         relationships,
         active.id as string,
         overContainer,
         tierIds,
       );
-      updateTierAssignments(enforced);
     }
+
+    // Show final state immediately (local), then persist to DB
+    setDragPreview(finalAssignments);
+    updateTierAssignments(finalAssignments);
   }
 
   return (
@@ -164,6 +220,7 @@ export function TierListView() {
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
         <div className="rounded-lg overflow-hidden border border-gray-700 bg-[#141414]">

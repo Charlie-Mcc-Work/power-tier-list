@@ -17,13 +17,18 @@ export function TierRow({ tierDef, characters, characterIds }: Props) {
 
   return (
     <div
-      className={`flex items-stretch border-b border-gray-700 min-h-[88px] transition-colors ${
-        isOver ? 'bg-[#252525]' : ''
+      className={`flex items-stretch border-b border-gray-700 min-h-[88px] transition-all duration-150 ${
+        isOver
+          ? 'ring-2 ring-inset ring-amber-400/60 bg-amber-400/5'
+          : ''
       }`}
     >
       <div
-        className="w-16 shrink-0 flex items-center justify-center font-bold text-xl text-gray-900"
-        style={{ backgroundColor: tierDef.color }}
+        className="w-16 shrink-0 flex items-center justify-center font-bold text-xl"
+        style={{
+          backgroundColor: tierDef.color,
+          color: '#141414',
+        }}
       >
         {tierDef.name}
       </div>
