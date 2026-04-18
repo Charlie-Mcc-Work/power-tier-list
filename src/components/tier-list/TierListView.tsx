@@ -20,6 +20,7 @@ import { useCharacters } from '../../hooks/use-characters';
 import { useTierList, updateTierAssignments, ensureTierList } from '../../hooks/use-tier-list';
 import { useRelationships } from '../../hooks/use-relationships';
 import { findInconsistencies } from '../../lib/inconsistency-checker';
+import { enforceAfterMove } from '../../lib/enforce-constraints';
 import type { Character, TierRank, TierAssignment } from '../../types';
 import { TIER_RANKS } from '../../types';
 
@@ -31,6 +32,7 @@ export function TierListView() {
   const tierList = useTierList();
   const relationships = useRelationships();
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [dragStartContainer, setDragStartContainer] = useState<TierRank | 'unranked' | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -96,12 +98,13 @@ export function TierListView() {
   function getContainerFromDroppableId(id: string): TierRank | 'unranked' {
     if (id === 'unranked') return 'unranked';
     if (id.startsWith('tier-')) return id.replace('tier-', '') as TierRank;
-    // It's a character id — find which container it's in
     return findContainer(id);
   }
 
   function handleDragStart(event: DragStartEvent) {
-    setActiveId(event.active.id as string);
+    const charId = event.active.id as string;
+    setActiveId(charId);
+    setDragStartContainer(findContainer(charId));
   }
 
   function handleDragOver(event: DragOverEvent) {
@@ -113,7 +116,7 @@ export function TierListView() {
 
     if (activeContainer === overContainer) return;
 
-    // Move to new container
+    // Simple visual move (no enforcement yet — that happens on drop)
     const newAssignments = assignments.filter(
       (a) => a.characterId !== (active.id as string),
     );
@@ -132,15 +135,18 @@ export function TierListView() {
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
+    const origContainer = dragStartContainer;
     setActiveId(null);
+    setDragStartContainer(null);
     if (!over) return;
 
-    const activeContainer = findContainer(active.id as string);
     const overContainer = getContainerFromDroppableId(over.id as string);
+    const currentContainer = findContainer(active.id as string);
+    const wasCrossTier = origContainer !== currentContainer || origContainer !== overContainer;
 
-    if (activeContainer === overContainer && activeContainer !== 'unranked') {
+    if (!wasCrossTier && currentContainer !== 'unranked') {
       // Reorder within same tier
-      const tier = activeContainer;
+      const tier = currentContainer;
       const tierIds = getCharacterIdsForTier(tier);
       const oldIndex = tierIds.indexOf(active.id as string);
       const overIndex = tierIds.indexOf(over.id as string);
@@ -155,34 +161,25 @@ export function TierListView() {
         });
         updateTierAssignments(newAssignments);
       }
-    } else if (activeContainer !== overContainer) {
-      // Already handled in dragOver, but finalize positions
-      const newAssignments = assignments.filter(
-        (a) => a.characterId !== (active.id as string),
-      );
-
-      if (overContainer !== 'unranked') {
-        const tierItems = newAssignments.filter((a) => a.tier === overContainer);
-        // Find insert position based on the item we're over
-        const overIdx = tierItems.findIndex((a) => a.characterId === (over.id as string));
-        const position = overIdx >= 0 ? overIdx : tierItems.length;
-
-        newAssignments.push({
-          characterId: active.id as string,
-          tier: overContainer,
-          position,
-        });
-
-        // Re-index positions for this tier
-        const tierAssigns = newAssignments
-          .filter((a) => a.tier === overContainer)
-          .sort((a, b) => a.position - b.position);
-        tierAssigns.forEach((a, idx) => {
-          a.position = idx;
-        });
+    } else if (overContainer === 'unranked' || currentContainer === 'unranked') {
+      // Moving to/from unranked — no enforcement needed
+      if (overContainer === 'unranked') {
+        const newAssignments = assignments.filter(
+          (a) => a.characterId !== (active.id as string),
+        );
+        updateTierAssignments(newAssignments);
       }
-
-      updateTierAssignments(newAssignments);
+      // Moving FROM unranked to a tier is already handled by handleDragOver
+    } else {
+      // Cross-tier move — enforce constraints!
+      const targetTier = currentContainer as TierRank;
+      const enforced = enforceAfterMove(
+        assignments,
+        relationships,
+        active.id as string,
+        targetTier,
+      );
+      updateTierAssignments(enforced);
     }
   }
 

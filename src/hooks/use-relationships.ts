@@ -55,6 +55,28 @@ export async function addRelationshipFromStatement(
   return { id };
 }
 
+export async function addBulkRelationshipsFromStatements(
+  statements: string[],
+  characters: Character[],
+): Promise<{ added: number; errors: Array<{ line: number; text: string; error: string }> }> {
+  const errors: Array<{ line: number; text: string; error: string }> = [];
+  let added = 0;
+
+  for (let i = 0; i < statements.length; i++) {
+    const statement = statements[i].trim();
+    if (!statement || statement.startsWith('#') || statement.startsWith('//')) continue;
+
+    const result = await addRelationshipFromStatement(statement, characters);
+    if ('error' in result) {
+      errors.push({ line: i + 1, text: statement, error: result.error });
+    } else {
+      added++;
+    }
+  }
+
+  return { added, errors };
+}
+
 export async function deleteRelationship(id: string): Promise<void> {
   await db.relationships.delete(id);
 }

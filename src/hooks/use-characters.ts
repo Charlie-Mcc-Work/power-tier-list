@@ -13,18 +13,21 @@ export function useCharacter(id: string | null): Character | undefined {
   );
 }
 
-export async function addCharacter(name: string, imageFile: File): Promise<string> {
+export async function addCharacter(name: string, imageFile?: File): Promise<string> {
   const id = crypto.randomUUID();
-  const imageId = crypto.randomUUID();
   const now = Date.now();
 
-  await db.images.add({
-    id: imageId,
-    blob: imageFile,
-    mimeType: imageFile.type,
-    originalFilename: imageFile.name,
-    createdAt: now,
-  });
+  let imageId: string | undefined;
+  if (imageFile) {
+    imageId = crypto.randomUUID();
+    await db.images.add({
+      id: imageId,
+      blob: imageFile,
+      mimeType: imageFile.type,
+      originalFilename: imageFile.name,
+      createdAt: now,
+    });
+  }
 
   await db.characters.add({
     id,
@@ -37,6 +40,60 @@ export async function addCharacter(name: string, imageFile: File): Promise<strin
   return id;
 }
 
+export async function addBulkCharactersByName(
+  names: string[],
+): Promise<{ added: number; skipped: number }> {
+  const existing = await db.characters.toArray();
+  const existingNames = new Set(existing.map((c) => c.name.toLowerCase()));
+
+  const now = Date.now();
+  const toAdd: Character[] = [];
+  let skipped = 0;
+
+  for (const name of names) {
+    const trimmed = name.trim();
+    if (!trimmed) continue;
+    if (existingNames.has(trimmed.toLowerCase())) {
+      skipped++;
+      continue;
+    }
+    existingNames.add(trimmed.toLowerCase());
+    toAdd.push({
+      id: crypto.randomUUID(),
+      name: trimmed,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  if (toAdd.length > 0) {
+    await db.characters.bulkAdd(toAdd);
+  }
+
+  return { added: toAdd.length, skipped };
+}
+
+export async function setCharacterImage(characterId: string, imageFile: File): Promise<void> {
+  const character = await db.characters.get(characterId);
+  if (!character) return;
+
+  const imageId = crypto.randomUUID();
+  await db.images.add({
+    id: imageId,
+    blob: imageFile,
+    mimeType: imageFile.type,
+    originalFilename: imageFile.name,
+    createdAt: Date.now(),
+  });
+
+  // Delete old image if it exists
+  if (character.imageId) {
+    await db.images.delete(character.imageId).catch(() => {});
+  }
+
+  await db.characters.update(characterId, { imageId, updatedAt: Date.now() });
+}
+
 export async function updateCharacterName(id: string, name: string): Promise<void> {
   await db.characters.update(id, { name, updatedAt: Date.now() });
 }
@@ -46,7 +103,7 @@ export async function deleteCharacter(id: string): Promise<void> {
   if (!character) return;
 
   await db.transaction('rw', [db.characters, db.images, db.relationships, db.evidence], async () => {
-    await db.images.delete(character.imageId);
+    if (character.imageId) await db.images.delete(character.imageId);
     await db.characters.delete(id);
 
     // Remove relationships involving this character

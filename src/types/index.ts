@@ -14,7 +14,7 @@ export const TIER_COLORS: Record<TierRank, string> = {
 export interface Character {
   id: string;
   name: string;
-  imageId: string;
+  imageId?: string;
   createdAt: number;
   updatedAt: number;
 }

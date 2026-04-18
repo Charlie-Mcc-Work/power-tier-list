@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useImage } from '../../hooks/use-image';
@@ -9,7 +10,7 @@ interface Props {
   isDragOverlay?: boolean;
 }
 
-export function CharacterCard({ character, isDragOverlay }: Props) {
+export const CharacterCard = memo(function CharacterCard({ character, isDragOverlay }: Props) {
   const imageUrl = useImage(character.imageId);
   const selectCharacter = useUIStore((s) => s.selectCharacter);
 
@@ -67,4 +68,4 @@ export function CharacterCard({ character, isDragOverlay }: Props) {
       </span>
     </div>
   );
-}
+});
