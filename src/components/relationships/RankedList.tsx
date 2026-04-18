@@ -97,7 +97,7 @@ export function RankedList({ relationships, characters }: Props) {
             <div key={layer} className="flex items-start gap-3">
               <span
                 className="text-xs font-bold w-8 h-6 flex items-center justify-center rounded shrink-0"
-                style={{ backgroundColor: TIER_COLORS[tier], color: '#1a1a2e' }}
+                style={{ backgroundColor: TIER_COLORS[tier], color: '#141414' }}
               >
                 {tier}
               </span>
@@ -107,7 +107,7 @@ export function RankedList({ relationships, characters }: Props) {
                   return char ? (
                     <span
                       key={id}
-                      className="text-xs px-2 py-1 rounded bg-[#252550] text-gray-300 border border-gray-700"
+                      className="text-xs px-2 py-1 rounded bg-[#2a2a2a] text-gray-300 border border-gray-700"
                     >
                       {char.name}
                     </span>

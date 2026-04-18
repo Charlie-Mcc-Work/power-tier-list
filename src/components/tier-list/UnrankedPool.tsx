@@ -25,8 +25,8 @@ export function UnrankedPool({ characters, characterIds }: Props) {
           ref={setNodeRef}
           className={`flex items-center gap-2 p-3 flex-wrap min-h-[88px] rounded-lg border-2 border-dashed transition-colors ${
             isOver
-              ? 'border-blue-400 bg-blue-400/10'
-              : 'border-gray-700 bg-[#0f0f23]'
+              ? 'border-amber-400 bg-amber-400/10'
+              : 'border-gray-700 bg-[#141414]'
           }`}
         >
           {characters.length === 0 && (

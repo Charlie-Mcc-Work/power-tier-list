@@ -134,15 +134,15 @@ function SmartInput({ characters }: Props) {
           placeholder="Type a character name... (chains: A > B > C)"
           autoComplete="off"
           spellCheck={false}
-          className="w-full bg-[#1a1a3e] border border-gray-600 rounded px-3 py-2 text-sm text-white
-                     font-mono placeholder-gray-500 focus:border-blue-400 focus:outline-none"
+          className="w-full bg-[#1e1e1e] border border-gray-600 rounded px-3 py-2 text-sm text-white
+                     font-mono placeholder-gray-500 focus:border-amber-400 focus:outline-none"
         />
 
         {/* Autocomplete dropdown */}
         {showDropdown && suggestions.length > 0 && (
           <div
             ref={dropdownRef}
-            className="absolute z-50 left-0 right-0 mt-1 bg-[#16213e] border border-gray-600
+            className="absolute z-50 left-0 right-0 mt-1 bg-[#1a1a1a] border border-gray-600
                        rounded-lg shadow-2xl max-h-56 overflow-y-auto"
           >
             {suggestions.map((char, idx) => (
@@ -157,7 +157,7 @@ function SmartInput({ characters }: Props) {
                 className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2
                            transition-colors border-b border-gray-800/50 last:border-0 ${
                   idx === selectedIdx
-                    ? 'bg-blue-600/30 text-white'
+                    ? 'bg-amber-600/30 text-white'
                     : 'text-gray-300 hover:bg-gray-800/50'
                 }`}
               >
@@ -177,7 +177,7 @@ function SmartInput({ characters }: Props) {
         value={note}
         onChange={(e) => setNote(e.target.value)}
         placeholder="Note (optional) — e.g. Chapter 1044, defeated in combat"
-        className="w-full bg-[#0f0f23] border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-300
+        className="w-full bg-[#141414] border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-300
                    placeholder-gray-600 focus:border-gray-500 focus:outline-none"
       />
 
@@ -185,7 +185,7 @@ function SmartInput({ characters }: Props) {
       <div className="flex items-center gap-3">
         <button
           type="submit"
-          className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded
+          className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-sm rounded
                      transition-colors shrink-0"
         >
           Add
@@ -249,14 +249,14 @@ function BulkInput({ characters }: Props) {
         }}
         placeholder={`Paste relationships, one per line:\nLuffy > Kaido\nZoro >= King\nA > B > C > D\n\nLines starting with # are ignored`}
         rows={8}
-        className="w-full bg-[#1a1a3e] border border-gray-600 rounded px-3 py-2 text-sm text-white
-                   placeholder-gray-500 focus:border-blue-400 focus:outline-none resize-y font-mono"
+        className="w-full bg-[#1e1e1e] border border-gray-600 rounded px-3 py-2 text-sm text-white
+                   placeholder-gray-500 focus:border-amber-400 focus:outline-none resize-y font-mono"
       />
       <div className="flex items-center gap-3">
         <button
           type="submit"
           disabled={processing}
-          className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded
+          className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-sm rounded
                      transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {processing ? 'Processing...' : 'Add All'}
@@ -303,7 +303,7 @@ export function RelationshipInput({ characters }: Props) {
             onClick={() => setMode('single')}
             className={`px-2 py-0.5 text-[10px] rounded transition-colors ${
               mode === 'single'
-                ? 'bg-blue-600 text-white'
+                ? 'bg-amber-600 text-white'
                 : 'bg-gray-800 text-gray-400 hover:text-gray-200'
             }`}
           >
@@ -313,7 +313,7 @@ export function RelationshipInput({ characters }: Props) {
             onClick={() => setMode('bulk')}
             className={`px-2 py-0.5 text-[10px] rounded transition-colors ${
               mode === 'bulk'
-                ? 'bg-blue-600 text-white'
+                ? 'bg-amber-600 text-white'
                 : 'bg-gray-800 text-gray-400 hover:text-gray-200'
             }`}
           >

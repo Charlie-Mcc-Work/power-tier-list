@@ -24,9 +24,6 @@ import { enforceAfterMove } from '../../lib/enforce-constraints';
 import type { Character, TierRank, TierAssignment } from '../../types';
 import { TIER_RANKS } from '../../types';
 
-// Initialize tier list on first render
-ensureTierList();
-
 export function TierListView() {
   const characters = useCharacters();
   const tierList = useTierList();
@@ -194,7 +191,7 @@ export function TierListView() {
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <div className="rounded-lg overflow-hidden border border-gray-700 bg-[#0f0f23]">
+        <div className="rounded-lg overflow-hidden border border-gray-700 bg-[#141414]">
           {TIER_RANKS.map((tier) => (
             <TierRow
               key={tier}

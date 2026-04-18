@@ -1,10 +1,11 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { NavBar } from './NavBar';
 import { useUIStore } from '../../stores/ui-store';
 import { TierListView } from '../tier-list/TierListView';
 import { RelationshipsView } from '../relationships/RelationshipsView';
 import { EvidenceView } from '../evidence/EvidenceView';
 import { CharacterDetail } from '../character/CharacterDetail';
+import { setActiveTierListId, ensureTierList } from '../../hooks/use-tier-list';
 
 function RightPaneTabs() {
   const { rightPaneTab, setRightPaneTab } = useUIStore();
@@ -14,7 +15,7 @@ function RightPaneTabs() {
         onClick={() => setRightPaneTab('relationships')}
         className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
           rightPaneTab === 'relationships'
-            ? 'text-white border-b-2 border-blue-400'
+            ? 'text-white border-b-2 border-amber-400'
             : 'text-gray-400 hover:text-gray-200'
         }`}
       >
@@ -24,7 +25,7 @@ function RightPaneTabs() {
         onClick={() => setRightPaneTab('evidence')}
         className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
           rightPaneTab === 'evidence'
-            ? 'text-white border-b-2 border-blue-400'
+            ? 'text-white border-b-2 border-amber-400'
             : 'text-gray-400 hover:text-gray-200'
         }`}
       >
@@ -69,7 +70,7 @@ function DragHandle({ containerRef }: { containerRef: React.RefObject<HTMLDivEle
   return (
     <div
       onMouseDown={onMouseDown}
-      className="w-1.5 shrink-0 cursor-col-resize bg-gray-700 hover:bg-blue-500 active:bg-blue-400
+      className="w-1.5 shrink-0 cursor-col-resize bg-gray-700 hover:bg-amber-500 active:bg-amber-400
                  transition-colors relative group"
       title="Drag to resize"
     >
@@ -135,7 +136,14 @@ function TabsLayout() {
 }
 
 export function AppShell() {
-  const { layoutMode, selectedCharacterId, selectCharacter } = useUIStore();
+  const { layoutMode, selectedCharacterId, selectCharacter, activeTierListId } = useUIStore();
+
+  useEffect(() => {
+    if (activeTierListId) {
+      setActiveTierListId(activeTierListId);
+      ensureTierList();
+    }
+  }, [activeTierListId]);
 
   return (
     <div className="flex flex-col h-screen">

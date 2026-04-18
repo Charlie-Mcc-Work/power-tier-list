@@ -67,7 +67,7 @@ export function ImageUploader() {
           onClick={() => setMode('images')}
           className={`px-3 py-1 text-xs rounded transition-colors ${
             mode === 'images'
-              ? 'bg-blue-600 text-white'
+              ? 'bg-amber-600 text-white'
               : 'bg-gray-800 text-gray-400 hover:text-gray-200'
           }`}
         >
@@ -77,7 +77,7 @@ export function ImageUploader() {
           onClick={() => setMode('names')}
           className={`px-3 py-1 text-xs rounded transition-colors ${
             mode === 'names'
-              ? 'bg-blue-600 text-white'
+              ? 'bg-amber-600 text-white'
               : 'bg-gray-800 text-gray-400 hover:text-gray-200'
           }`}
         >
@@ -99,7 +99,7 @@ export function ImageUploader() {
             transition-colors text-center
             ${
               isDragOver
-                ? 'border-blue-400 bg-blue-400/10 text-blue-300'
+                ? 'border-amber-400 bg-amber-400/10 text-amber-300'
                 : 'border-gray-600 hover:border-gray-500 text-gray-400 hover:text-gray-300'
             }
           `}
@@ -131,13 +131,13 @@ export function ImageUploader() {
             onChange={(e) => setNameInput(e.target.value)}
             placeholder="Paste character names, one per line..."
             rows={8}
-            className="w-full bg-[#1a1a3e] border border-gray-600 rounded px-3 py-2 text-sm text-white
-                       placeholder-gray-500 focus:border-blue-400 focus:outline-none resize-y font-mono"
+            className="w-full bg-[#1e1e1e] border border-gray-600 rounded px-3 py-2 text-sm text-white
+                       placeholder-gray-500 focus:border-amber-400 focus:outline-none resize-y font-mono"
           />
           <div className="flex items-center gap-3">
             <button
               onClick={handleBulkNames}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded transition-colors"
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-sm rounded transition-colors"
             >
               Add Characters
             </button>

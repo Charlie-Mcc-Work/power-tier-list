@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { useUIStore } from '../../stores/ui-store';
+import type { ImageDisplayMode } from '../../stores/ui-store';
 import { exportData, importData, downloadExport } from '../../db/export-import';
 import type { AppView, LayoutMode } from '../../types';
 
@@ -15,8 +16,13 @@ const layouts: { mode: LayoutMode; label: string; title: string }[] = [
   { mode: 'tabs', label: '[ ]', title: 'Single view' },
 ];
 
+const imageDisplayOptions: { mode: ImageDisplayMode; label: string; title: string }[] = [
+  { mode: 'contain', label: 'Fit', title: 'Show full image (no crop)' },
+  { mode: 'cover', label: 'Fill', title: 'Fill square (may crop)' },
+];
+
 export function NavBar() {
-  const { activeView, setActiveView, layoutMode, setLayoutMode } = useUIStore();
+  const { activeView, setActiveView, layoutMode, setLayoutMode, imageDisplay, setImageDisplay, navigateHome } = useUIStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function handleExport() {
@@ -33,8 +39,20 @@ export function NavBar() {
   }
 
   return (
-    <nav className="flex items-center gap-1 bg-[#16213e] border-b border-gray-700 px-4">
-      <h1 className="text-lg font-bold text-white mr-4 py-3">Power Tier List</h1>
+    <nav className="flex items-center gap-1 bg-[#1a1a1a] border-b border-gray-700 px-4">
+      <button
+        onClick={navigateHome}
+        className="text-gray-400 hover:text-white transition-colors mr-2 py-3 text-sm"
+        title="Back to all tier lists"
+      >
+        &larr;
+      </button>
+      <h1
+        onClick={navigateHome}
+        className="text-lg font-bold text-white mr-4 py-3 cursor-pointer hover:text-amber-400 transition-colors"
+      >
+        Power Tier List
+      </h1>
 
       {/* Layout switcher */}
       <div className="flex items-center border border-gray-600 rounded overflow-hidden mr-4">
@@ -45,7 +63,7 @@ export function NavBar() {
             title={l.title}
             className={`px-2.5 py-1.5 text-xs font-mono transition-colors ${
               layoutMode === l.mode
-                ? 'bg-blue-600 text-white'
+                ? 'bg-amber-600 text-white'
                 : 'bg-gray-800 text-gray-400 hover:text-gray-200'
             }`}
           >
@@ -68,12 +86,29 @@ export function NavBar() {
           >
             {tab.label}
             {activeView === tab.view && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400" />
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-400" />
             )}
           </button>
         ))}
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-3">
+        {/* Image display toggle */}
+        <div className="flex items-center border border-gray-600 rounded overflow-hidden">
+          {imageDisplayOptions.map((opt) => (
+            <button
+              key={opt.mode}
+              onClick={() => setImageDisplay(opt.mode)}
+              title={opt.title}
+              className={`px-2 py-1 text-[10px] transition-colors ${
+                imageDisplay === opt.mode
+                  ? 'bg-gray-600 text-white'
+                  : 'bg-gray-800 text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
         <button
           onClick={handleExport}
           className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600

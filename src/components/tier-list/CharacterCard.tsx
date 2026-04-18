@@ -13,6 +13,7 @@ interface Props {
 export const CharacterCard = memo(function CharacterCard({ character, isDragOverlay }: Props) {
   const imageUrl = useImage(character.imageId);
   const selectCharacter = useUIStore((s) => s.selectCharacter);
+  const imageDisplay = useUIStore((s) => s.imageDisplay);
 
   const {
     attributes,
@@ -46,9 +47,9 @@ export const CharacterCard = memo(function CharacterCard({ character, isDragOver
       }}
       className={`
         flex flex-col items-center gap-1 p-1.5 rounded-lg cursor-grab active:cursor-grabbing
-        bg-[#1a1a3e] hover:bg-[#252550] border border-gray-700 hover:border-gray-500
+        bg-[#1e1e1e] hover:bg-[#2a2a2a] border border-gray-700 hover:border-gray-500
         transition-colors w-[80px] shrink-0
-        ${isDragOverlay ? 'shadow-2xl ring-2 ring-blue-400' : ''}
+        ${isDragOverlay ? 'shadow-2xl ring-2 ring-amber-400' : ''}
       `}
     >
       <div className="w-14 h-14 rounded overflow-hidden bg-gray-800 flex items-center justify-center">
@@ -56,7 +57,7 @@ export const CharacterCard = memo(function CharacterCard({ character, isDragOver
           <img
             src={imageUrl}
             alt={character.name}
-            className="w-full h-full object-cover"
+            className={`w-full h-full ${imageDisplay === 'contain' ? 'object-contain' : 'object-cover'}`}
             draggable={false}
           />
         ) : (

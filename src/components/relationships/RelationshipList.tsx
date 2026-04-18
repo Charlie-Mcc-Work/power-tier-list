@@ -29,7 +29,7 @@ export function RelationshipList({ relationships, characters }: Props) {
         return (
           <div
             key={rel.id}
-            className="flex items-center gap-3 p-2 rounded bg-[#1a1a3e] border border-gray-700"
+            className="flex items-center gap-3 p-2 rounded bg-[#1e1e1e] border border-gray-700"
           >
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 text-sm">
@@ -39,7 +39,7 @@ export function RelationshipList({ relationships, characters }: Props) {
                   className={`shrink-0 px-1.5 py-0.5 rounded text-xs font-mono border transition-colors cursor-pointer ${
                     isStrict
                       ? 'text-orange-400 bg-orange-900/20 border-orange-700/50 hover:bg-orange-900/40'
-                      : 'text-blue-400 bg-blue-900/20 border-blue-700/50 hover:bg-blue-900/40'
+                      : 'text-amber-400 bg-amber-900/20 border-amber-700/50 hover:bg-amber-900/40'
                   }`}
                   title={isStrict ? 'Strictly higher tier (click to toggle)' : 'Same tier or higher (click to toggle)'}
                 >

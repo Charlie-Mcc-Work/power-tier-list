@@ -19,7 +19,7 @@ export function TierRow({ tier, characters, characterIds }: Props) {
   return (
     <div
       className={`flex items-stretch border-b border-gray-700 min-h-[88px] transition-colors ${
-        isOver ? 'bg-[#1a1a4e]' : ''
+        isOver ? 'bg-[#252525]' : ''
       }`}
     >
       <div

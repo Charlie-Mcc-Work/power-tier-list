@@ -32,7 +32,7 @@ export function EvidenceView() {
           <select
             value={filterKind}
             onChange={(e) => setFilterKind(e.target.value as EvidenceKind | 'all')}
-            className="bg-[#1a1a3e] border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+            className="bg-[#1e1e1e] border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
           >
             <option value="all">All Types</option>
             <option value="feat">Feats</option>
@@ -42,7 +42,7 @@ export function EvidenceView() {
           <select
             value={filterChar}
             onChange={(e) => setFilterChar(e.target.value)}
-            className="bg-[#1a1a3e] border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+            className="bg-[#1e1e1e] border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
           >
             <option value="all">All Characters</option>
             {characters.map((c) => (
@@ -54,7 +54,7 @@ export function EvidenceView() {
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded transition-colors"
+          className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-sm rounded transition-colors"
         >
           {showForm ? 'Cancel' : '+ Add Evidence'}
         </button>

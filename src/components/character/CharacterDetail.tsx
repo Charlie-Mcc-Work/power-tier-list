@@ -45,7 +45,7 @@ export function CharacterDetail({ characterId, onClose }: Props) {
   }
 
   return (
-    <div className="w-80 bg-[#16213e] border-l border-gray-700 overflow-y-auto flex flex-col">
+    <div className="w-80 bg-[#1a1a1a] border-l border-gray-700 overflow-y-auto flex flex-col">
       <div className="flex items-center justify-between p-4 border-b border-gray-700">
         <h2 className="text-sm font-medium text-white">Character Details</h2>
         <button
@@ -83,7 +83,7 @@ export function CharacterDetail({ characterId, onClose }: Props) {
                 onChange={(e) => setEditName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && saveName()}
                 autoFocus
-                className="bg-[#0f0f23] border border-gray-600 rounded px-2 py-1 text-sm text-white text-center focus:border-blue-400 focus:outline-none"
+                className="bg-[#141414] border border-gray-600 rounded px-2 py-1 text-sm text-white text-center focus:border-amber-400 focus:outline-none"
               />
               <button
                 onClick={saveName}
@@ -94,7 +94,7 @@ export function CharacterDetail({ characterId, onClose }: Props) {
             </div>
           ) : (
             <h3
-              className="text-lg font-medium text-white cursor-pointer hover:text-blue-300 transition-colors"
+              className="text-lg font-medium text-white cursor-pointer hover:text-amber-300 transition-colors"
               onClick={startEditName}
               title="Click to edit name"
             >
@@ -119,7 +119,7 @@ export function CharacterDetail({ characterId, onClose }: Props) {
                 return (
                   <div
                     key={rel.id}
-                    className="text-xs p-1.5 rounded bg-[#0f0f23] text-gray-300"
+                    className="text-xs p-1.5 rounded bg-[#141414] text-gray-300"
                   >
                     {isSuper ? (
                       <>

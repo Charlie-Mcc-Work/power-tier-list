@@ -50,7 +50,7 @@ export function EvidenceForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 p-4 bg-[#1a1a3e] rounded-lg border border-gray-700">
+    <form onSubmit={handleSubmit} className="space-y-3 p-4 bg-[#1e1e1e] rounded-lg border border-gray-700">
       <div className="flex gap-2">
         {(['feat', 'statement', 'title'] as const).map((k) => (
           <button
@@ -59,7 +59,7 @@ export function EvidenceForm({
             onClick={() => setKind(k)}
             className={`px-3 py-1 text-xs rounded capitalize transition-colors ${
               kind === k
-                ? 'bg-blue-600 text-white'
+                ? 'bg-amber-600 text-white'
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
             }`}
           >
@@ -79,8 +79,8 @@ export function EvidenceForm({
               ? 'e.g. "World\'s Strongest Swordsman"'
               : 'e.g. "Oda stated Mihawk is stronger"'
         }
-        className="w-full bg-[#0f0f23] border border-gray-600 rounded px-3 py-2 text-sm text-white
-                   placeholder-gray-500 focus:border-blue-400 focus:outline-none"
+        className="w-full bg-[#141414] border border-gray-600 rounded px-3 py-2 text-sm text-white
+                   placeholder-gray-500 focus:border-amber-400 focus:outline-none"
       />
 
       <input
@@ -88,8 +88,8 @@ export function EvidenceForm({
         value={source}
         onChange={(e) => setSource(e.target.value)}
         placeholder="Source (e.g. Chapter 1058, SBS Vol 4)"
-        className="w-full bg-[#0f0f23] border border-gray-600 rounded px-3 py-2 text-sm text-white
-                   placeholder-gray-500 focus:border-blue-400 focus:outline-none"
+        className="w-full bg-[#141414] border border-gray-600 rounded px-3 py-2 text-sm text-white
+                   placeholder-gray-500 focus:border-amber-400 focus:outline-none"
       />
 
       <div>
@@ -102,7 +102,7 @@ export function EvidenceForm({
               onClick={() => toggleCharacter(char.id)}
               className={`text-xs px-2 py-1 rounded transition-colors ${
                 selectedCharIds.includes(char.id)
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-amber-600 text-white'
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
               }`}
             >
@@ -128,7 +128,7 @@ export function EvidenceForm({
                   onClick={() => toggleRelationship(rel.id)}
                   className={`text-xs px-2 py-1 rounded transition-colors ${
                     selectedRelIds.includes(rel.id)
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-amber-600 text-white'
                       : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                   }`}
                 >
@@ -143,7 +143,7 @@ export function EvidenceForm({
       <button
         type="submit"
         disabled={!text.trim() || selectedCharIds.length === 0}
-        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500
+        className="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:bg-gray-700 disabled:text-gray-500
                    text-white text-sm rounded transition-colors"
       >
         Add Evidence
