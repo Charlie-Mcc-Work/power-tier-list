@@ -104,9 +104,9 @@ export async function removeFromTier(characterId: string): Promise<void> {
  */
 export async function enforceAndAutoPlace(): Promise<void> {
   const [relationships, tierList, characters] = await Promise.all([
-    db.relationships.toArray(),
+    db.relationships.where('tierListId').equals(activeTierListId).toArray(),
     ensureTierList(),
-    db.characters.toArray(),
+    db.characters.where('tierListId').equals(activeTierListId).toArray(),
   ]);
 
   const tierDefs = tierList.tierDefs ?? DEFAULT_TIER_DEFS;

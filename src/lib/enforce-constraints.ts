@@ -1,7 +1,8 @@
 import type { Relationship, TierAssignment } from '../types';
 
 function toIdx(tierId: string, tierIds: string[]): number {
-  return tierIds.indexOf(tierId);
+  const idx = tierIds.indexOf(tierId);
+  return idx >= 0 ? idx : 0;
 }
 function toTierId(idx: number, tierIds: string[]): string {
   const maxIdx = tierIds.length - 1;
