@@ -3,6 +3,7 @@ import { AppShell } from './components/layout/AppShell';
 import { HomePage } from './components/home/HomePage';
 import { PresentationView } from './components/tier-list/PresentationView';
 import { SnapshotManager } from './components/layout/SnapshotManager';
+import { HelpPanel } from './components/layout/HelpPanel';
 import { useUIStore } from './stores/ui-store';
 import { autoSnapshotOnStart } from './db/export-import';
 
@@ -23,6 +24,7 @@ function App() {
       {page === 'home' ? <HomePage /> : <AppShell />}
       {presenting && <PresentationView />}
       <SnapshotManager />
+      <HelpPanel />
     </>
   );
 }

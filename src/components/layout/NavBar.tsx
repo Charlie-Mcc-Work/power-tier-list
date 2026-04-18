@@ -3,6 +3,7 @@ import { useUIStore, CARD_SIZES } from '../../stores/ui-store';
 import type { ImageDisplayMode, CardSize } from '../../stores/ui-store';
 import { exportData, importData, downloadExport } from '../../db/export-import';
 import { openSnapshotManager } from './SnapshotManager';
+import { openHelpPanel } from './HelpPanel';
 import type { AppView, LayoutMode } from '../../types';
 
 const tabs: { view: AppView; label: string }[] = [
@@ -165,6 +166,14 @@ export function NavBar() {
                      rounded transition-colors"
         >
           Import
+        </button>
+        <button
+          onClick={openHelpPanel}
+          className="w-7 h-7 flex items-center justify-center text-xs text-gray-400 hover:text-white
+                     bg-gray-700 hover:bg-gray-600 rounded-full transition-colors"
+          title="How it works"
+        >
+          ?
         </button>
         <input
           ref={fileInputRef}

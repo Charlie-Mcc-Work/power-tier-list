@@ -3,6 +3,7 @@ import { useUIStore } from '../../stores/ui-store';
 import { useAllTierLists, createTierList, deleteTierList, updateTierListName } from '../../hooks/use-tier-list';
 import { setActiveTierListId } from '../../hooks/use-tier-list';
 import { openSnapshotManager } from '../layout/SnapshotManager';
+import { openHelpPanel } from '../layout/HelpPanel';
 import type { TierList } from '../../types';
 import { DEFAULT_TIER_DEFS } from '../../types';
 
@@ -40,13 +41,23 @@ export function HomePage() {
               {tierLists.length} tier list{tierLists.length !== 1 ? 's' : ''}
             </p>
           </div>
-          <button
-            onClick={openSnapshotManager}
-            className="px-4 py-2 text-sm text-gray-300 hover:text-white bg-[#1e1e1e] hover:bg-[#2a2a2a]
-                       border border-gray-700 rounded-lg transition-colors"
-          >
-            Backups
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={openSnapshotManager}
+              className="px-4 py-2 text-sm text-gray-300 hover:text-white bg-[#1e1e1e] hover:bg-[#2a2a2a]
+                         border border-gray-700 rounded-lg transition-colors"
+            >
+              Backups
+            </button>
+            <button
+              onClick={openHelpPanel}
+              className="w-9 h-9 flex items-center justify-center text-sm text-gray-400 hover:text-white
+                         bg-[#1e1e1e] hover:bg-[#2a2a2a] border border-gray-700 rounded-lg transition-colors"
+              title="How it works"
+            >
+              ?
+            </button>
+          </div>
         </div>
 
         {/* Create new */}
