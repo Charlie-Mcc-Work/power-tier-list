@@ -52,9 +52,17 @@ export function enforceAfterMove(
   for (const a of currentAssignments) {
     tierMap.set(a.characterId, toIdx(a.tier, tierIds));
   }
-  tierMap.set(movedCharId, toIdx(targetTier, tierIds));
 
   const { fwd, rev } = buildGraphPair(relationships);
+
+  // Validate the moved character's target against its own constraints.
+  // It can't go above any of its superiors (respecting strict gaps).
+  let movedIdx = toIdx(targetTier, tierIds);
+  for (const [sup, edge] of rev.get(movedCharId) ?? new Map()) {
+    const si = tierMap.get(sup);
+    if (si != null) movedIdx = Math.max(movedIdx, si + (edge.strict ? 1 : 0));
+  }
+  tierMap.set(movedCharId, Math.min(movedIdx, maxIdx));
 
   // Phase 1: Push descendants down
   {
