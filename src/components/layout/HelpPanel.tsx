@@ -135,6 +135,9 @@ export function HelpPanel() {
               <li><span className="text-gray-300">Backups</span> — Auto-snapshots on every app start, restorable anytime</li>
               <li><span className="text-gray-300">Export / Import</span> — Save/load as JSON file</li>
               <li><span className="text-gray-300">Mobile</span> — Touch drag with long-press. Layout auto-switches to tabs on small screens.</li>
+              <li><span className="text-gray-300">Undo / Redo</span> — Ctrl+Z to undo, Ctrl+Shift+Z or Ctrl+Y to redo. Tracks drag moves and relationship placements (last 50 states).</li>
+              <li><span className="text-gray-300">Save Image</span> — In presentation mode, click "Save Image" to download the tier list as a PNG.</li>
+              <li><span className="text-gray-300">Graph</span> — Click "Show Graph" in the relationships panel to see the relationship DAG. Pan by dragging, zoom with mousewheel.</li>
             </ul>
           </section>
         </div>

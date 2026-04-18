@@ -26,6 +26,7 @@ import { enforceAfterMove, enforceWithinTierOrder } from '../../lib/enforce-cons
 import type { Character, TierAssignment } from '../../types';
 import { DEFAULT_TIER_DEFS } from '../../types';
 import { log } from '../../lib/logger';
+import { undoManager } from '../../lib/undo';
 
 export function TierListView() {
   const characters = useCharacters();
@@ -99,6 +100,24 @@ export function TierListView() {
       window.removeEventListener('wheel', handleWheel);
     };
   }, [activeId]);
+
+  // Undo/redo keyboard shortcuts
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        const restored = undoManager.undo(dbAssignments);
+        if (restored) updateTierAssignments(restored);
+      } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
+        e.preventDefault();
+        const restored = undoManager.redo(dbAssignments);
+        if (restored) updateTierAssignments(restored);
+      }
+    }
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [dbAssignments]);
 
   // Clear local preview once DB catches up after drop
   useEffect(() => {
@@ -287,6 +306,8 @@ export function TierListView() {
         finalAssignments = result.assignments;
       }
 
+      // Save state for undo before committing
+      undoManager.push(dbAssignments, 'drag');
       setDragPreview(finalAssignments);
       updateTierAssignments(finalAssignments);
     } catch (err) {

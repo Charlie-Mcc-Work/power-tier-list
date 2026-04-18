@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import html2canvas from 'html2canvas';
 import { useUIStore, CARD_SIZES } from '../../stores/ui-store';
 import { useCharacters } from '../../hooks/use-characters';
 import { useTierList } from '../../hooks/use-tier-list';
@@ -74,6 +75,27 @@ export function PresentationView() {
   const setPresenting = useUIStore((s) => s.setPresenting);
   const cardSize = useUIStore((s) => s.cardSize);
   const setCardSize = useUIStore((s) => s.setCardSize);
+  const tierListRef = useRef<HTMLDivElement>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSaveImage() {
+    if (!tierListRef.current || saving) return;
+    setSaving(true);
+    try {
+      const canvas = await html2canvas(tierListRef.current, {
+        backgroundColor: '#0d0d0d',
+        scale: 2,
+        useCORS: true,
+      });
+      const link = document.createElement('a');
+      link.download = `${tierList?.name ?? 'tier-list'}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch {
+      // ignore
+    }
+    setSaving(false);
+  }
   const characters = useCharacters();
   const tierList = useTierList();
 
@@ -124,6 +146,14 @@ export function PresentationView() {
             ))}
           </div>
           <button
+            onClick={handleSaveImage}
+            disabled={saving}
+            className="px-3 py-1 text-xs text-white bg-amber-600 hover:bg-amber-500
+                       rounded transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save Image'}
+          </button>
+          <button
             onClick={() => setPresenting(false)}
             className="px-3 py-1 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
                        rounded transition-colors"
@@ -135,7 +165,7 @@ export function PresentationView() {
 
       {/* Full tier list */}
       <div className="flex-1 overflow-auto p-4">
-        <div className="rounded-lg overflow-hidden border border-gray-700 bg-[#141414]">
+        <div ref={tierListRef} className="rounded-lg overflow-hidden border border-gray-700 bg-[#141414]">
           {tierDefs.map((td) => (
             <PresentationTierRow
               key={td.id}

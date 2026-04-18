@@ -3,6 +3,7 @@ import { db } from '../db/database';
 import type { TierList, TierAssignment } from '../types';
 import { DEFAULT_TIER_DEFS } from '../types';
 import { autoPlaceAndEnforce } from '../lib/enforce-constraints';
+import { undoManager } from '../lib/undo';
 
 // ── Active tier list ID (module-level so all functions share it) ──
 
@@ -138,6 +139,7 @@ export async function enforceAndAutoPlace(): Promise<void> {
       return !orig || orig.characterId !== a.characterId || orig.tier !== a.tier || orig.position !== a.position;
     })
   ) {
+    undoManager.push(tierList.tiers, 'relationship');
     await updateTierAssignments(newAssignments);
   }
 }
