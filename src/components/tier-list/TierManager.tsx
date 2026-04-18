@@ -2,6 +2,16 @@ import { useState } from 'react';
 import type { TierDefinition } from '../../types';
 import { addTierDef, removeTierDef, renameTierDef, recolorTierDef, reorderTierDefs } from '../../hooks/use-tier-list';
 
+const TIER_PALETTE = [
+  '#ff6b6b', '#ffa06b', '#ffd06b', '#d4ff6b', '#6bffa0',
+  '#6bffd0', '#6bd0ff', '#6ba0ff', '#a06bff', '#ff6bd0',
+  '#ff9eb8', '#c9e86b', '#6be8c9', '#b89eff', '#ff6b9e',
+];
+
+function randomColor(): string {
+  return TIER_PALETTE[Math.floor(Math.random() * TIER_PALETTE.length)];
+}
+
 interface Props {
   tierDefs: TierDefinition[];
 }
@@ -9,7 +19,7 @@ interface Props {
 export function TierManager({ tierDefs }: Props) {
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newColor, setNewColor] = useState('#7fafff');
+  const [newColor, setNewColor] = useState(randomColor);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
 
@@ -18,6 +28,7 @@ export function TierManager({ tierDefs }: Props) {
     if (!name) return;
     await addTierDef(name, newColor);
     setNewName('');
+    setNewColor(randomColor());
   }
 
   async function handleRemove(tierId: string) {
