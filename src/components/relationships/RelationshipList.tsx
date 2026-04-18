@@ -41,10 +41,15 @@ export function RelationshipList({ relationships, characters }: Props) {
             key={rel.id}
             className="flex items-center gap-3 p-2 rounded bg-[#1a1a3e] border border-gray-700"
           >
-            <div className="flex-1 flex items-center gap-2 text-sm">
-              <span className="text-white font-medium">{superior.name}</span>
-              <span className="text-gray-400">&gt;</span>
-              <span className="text-white font-medium">{inferior.name}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-white font-medium truncate">{superior.name}</span>
+                <span className="text-gray-400 shrink-0">&gt;</span>
+                <span className="text-white font-medium truncate">{inferior.name}</span>
+              </div>
+              {rel.note && (
+                <p className="text-[10px] text-gray-500 italic truncate mt-0.5">{rel.note}</p>
+              )}
             </div>
             <select
               value={rel.confidence}
