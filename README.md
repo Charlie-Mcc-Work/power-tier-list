@@ -1,50 +1,64 @@
 # Power Tier List
 
-A local-first web app for creating strength tier lists of fictional characters with a built-in relational reasoning system. Primarily designed for One Piece power scaling, but works for any fictional universe.
+A local-first web app for building logically consistent strength tier lists of fictional characters. Designed for One Piece power scaling with 400+ characters, but works for any fictional universe.
 
 ## What Makes This Different
 
-This isn't just a drag-and-drop tier maker. It's a **reasoning tool** that helps you keep your character rankings logically consistent.
+This isn't a drag-and-drop tier maker. It's a **constraint-based reasoning tool** where your stated relationships (e.g., "Luffy > Kaido") are **enforced rules** — the tier list physically cannot contradict your data.
 
-- **Type relationships** like `Mihawk > Shanks` and the app builds a directed graph that can auto-place characters into tiers
-- **Track evidence** — attach feats, statements, and titles to characters and relationships so every ranking has justification
-- **Detect inconsistencies** — if your manual tier placements contradict your stated relationships, the app flags them
-- **Catch contradictions** — circular rankings (A > B > C > A) are automatically detected
+- **Relationships are law** — define `A > B` and A is guaranteed to be in a higher tier than B. Always.
+- **Cascading enforcement** — drag a character to a new tier and everything else adjusts to stay consistent
+- **Chain input** — type `Warcury > V. Nusjuro > Mars > Saturn` to create 3 relationships in one shot
+- **IDE-like autocomplete** — fuzzy character name matching as you type, Tab to complete, arrow keys to navigate
+- **Bulk operations** — paste 400+ character names or hundreds of relationship statements at once
+
+## Operators
+
+Five operators that map directly to tier list constraints:
+
+| Operator | Meaning | Enforcement |
+|----------|---------|-------------|
+| `>` | strictly stronger | must be in a **higher** tier |
+| `>=` | at least as strong | same tier or higher |
+| `=` | equal | forces **same** tier |
+| `<=` | at most as strong | same tier or lower |
+| `<` | strictly weaker | must be in a **lower** tier |
+
+The distinction between `>` and `>=` matters: `A > B` forces them into different tiers, while `A >= B` allows them to share one.
 
 ## Features
 
 ### Tier List
-- Classic S/A/B/C/D/F tier rows
-- Drag-and-drop characters between tiers and reorder within tiers
-- Upload character images — file names automatically become character names
-- Inconsistency warnings when placements contradict the relationship graph
+- S/A/B/C/D/F tier rows with drag-and-drop ([@dnd-kit](https://dndkit.com/))
+- **Enforced drag** — moving a character cascades all relationship constraints automatically
+- Upload character images (filenames become character names) or **add by name** in bulk
+- Image uploads match existing characters by filename, so you can add names first and images later
+- Inconsistency warnings if manual placements ever violate the relationship graph
 
-### Relational Reasoning
-- Natural input syntax: `Mihawk > Shanks` (likely), `Luffy >> Kaido` (certain), `Zoro >? Sanji` (speculative)
-- Derived ranking via topological sort — see where the math says characters should land
-- **Apply to Tier List** button — one click to auto-place characters based on their relationships
-- Cycle detection with clear explanations of which relationships conflict
+### Relationship Input
+- **Autocomplete** — start typing a character name and get fuzzy-matched suggestions
+- **Tab to complete**, arrow keys to navigate, click to select
+- **Chains** — `A > B > C > D` creates multiple relationships in one entry
+- **Notes** — every relationship has an optional note field for context ("Chapter 1044", "Luffy defeats Kaido")
+- **Bulk mode** — paste many statements at once (one per line, chains supported, `#` comments ignored)
+- **Auto-placement** — newly related characters are automatically placed into tiers based on the graph
 
 ### Evidence / Knowledge Base
 - Three evidence types: **Feats** (things they did), **Statements** (things said about them), **Titles** (formal designations)
 - Link evidence to specific characters and relationships
 - Filter by type or character
-- Every ranking decision can be backed by sourced evidence
+
+### Layout
+- **Triple (|||)** — tier list left, relationships + evidence stacked right (default)
+- **Split (|+)** — tier list left, tabbed right pane
+- **Tabs ([ ])** — single fullscreen view
+- Draggable resize handle between panes (20–80%)
 
 ### Persistence
-- All data auto-saves to IndexedDB (survives page refreshes and browser restarts)
-- **Export** — download your entire tier list (including images) as a JSON file
-- **Import** — restore from a previous export on any machine
-- Click any character to view/edit their details, relationships, and evidence in a side panel
-
-## Tech Stack
-
-- **React 19 + TypeScript** — UI framework
-- **Vite** — build tooling
-- **Tailwind CSS 4** — styling
-- **@dnd-kit** — drag-and-drop
-- **Dexie.js** — IndexedDB wrapper for persistence (including image blobs)
-- **Zustand** — UI state management
+- All data auto-saves to IndexedDB (survives refreshes and browser restarts)
+- **Export** — full JSON including base64-encoded images
+- **Import** — restore on any machine
+- Character detail panel — click any character to view/edit their relationships, evidence, and name
 
 ## Getting Started
 
@@ -55,30 +69,53 @@ npm run dev
 
 Open http://localhost:5173 in your browser.
 
-### Quick Start
+### Workflow for a Large Tier List
 
-1. Go to the **Tier List** tab and upload some character images (drag-and-drop or click)
-2. Drag characters from the Unranked pool into tier rows
-3. Switch to **Relationships** and type comparisons like `Luffy >> Kaido`
-4. Click **Apply to Tier List** to auto-place characters based on relationships
-5. Switch to **Evidence** to add feats, statements, and titles backing up your rankings
-6. Use **Export** (top nav) to save your work to a file
+1. **Add characters** — click "Add by Name" on the tier list panel and paste your character names (one per line)
+2. **Add relationships** — switch to the relationships panel and type chains like `Luffy > Zoro > Sanji` with autocomplete, or switch to Bulk mode and paste hundreds of statements
+3. **Auto-placement** — characters are automatically placed into tiers as relationships are added
+4. **Fine-tune** — drag characters between tiers; all constraints cascade automatically
+5. **Add images** — drag-drop image files; they match existing characters by filename
+6. **Export** — save your work to a JSON file from the nav bar
+
+## Tech Stack
+
+- **React 19** + **TypeScript 6** — UI framework
+- **Vite 8** — build tooling
+- **Tailwind CSS 4** — styling
+- **@dnd-kit** — drag-and-drop
+- **Dexie.js** — IndexedDB wrapper (persistence including image blobs)
+- **Zustand** — UI state management
+
+### Core Algorithms
+
+- **Topological sort** (Kahn's) — derives character ordering from the relationship DAG
+- **Cycle detection** (Tarjan's SCC) — catches circular relationships
+- **Constraint enforcement** — BFS cascade that pushes descendants down / ancestors up after any change, respecting strict vs non-strict gaps
+- **Layered ranking** — maps graph layers proportionally across S–F tiers
 
 ## Project Structure
 
 ```
 src/
-├── components/       # React UI components
-│   ├── character/    # Character detail side panel
-│   ├── evidence/     # Evidence CRUD and display
-│   ├── layout/       # App shell and navigation
-│   ├── relationships/# Relationship input, list, ranked view
-│   └── tier-list/    # Tier rows, drag-and-drop, image upload
-├── db/               # Dexie database and export/import
-├── hooks/            # React hooks for data access
-├── lib/              # Core logic (graph algorithms, parser, matching)
-├── stores/           # Zustand UI state
-└── types/            # TypeScript type definitions
+├── components/
+│   ├── character/      # Character detail side panel
+│   ├── evidence/       # Evidence CRUD and display
+│   ├── layout/         # App shell, nav bar, layout modes
+│   ├── relationships/  # Autocomplete input, relationship list, ranked view, cycle warning
+│   └── tier-list/      # Tier rows, drag-and-drop, image/name upload
+├── db/
+│   ├── database.ts     # Dexie schema (characters, tierLists, relationships, evidence, images)
+│   └── export-import.ts
+├── hooks/              # Data access (useCharacters, useTierList, useRelationships, useEvidence)
+├── lib/
+│   ├── graph.ts        # Topological sort, cycle detection, layered ranking
+│   ├── enforce-constraints.ts  # Cascading constraint enforcement engine
+│   ├── relationship-parser.ts  # Chain parser (A > B > C) with 5 operators
+│   ├── inconsistency-checker.ts
+│   └── fuzzy-match.ts  # Character name matching for autocomplete
+├── stores/             # Zustand (layout mode, selected character)
+└── types/              # TypeScript type definitions
 ```
 
 ## License
