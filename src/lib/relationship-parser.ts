@@ -18,16 +18,18 @@ export function isParseError(result: ParseResult): result is ParseError {
   return 'error' in result;
 }
 
-const OP_REGEX = /(>=|<=|>|<|=)/;
+export const OP_REGEX = /(>=|<=|>|<|=)/;
 
 /**
- * Parse a relationship statement (supports chains).
+ * Parse a relationship statement. Supports:
  *
- *   "Luffy > Zoro"          → one strict pair
- *   "Luffy >= Zoro"         → one non-strict pair
- *   "Luffy = Zoro"          → bidirectional (two non-strict pairs)
- *   "A > B > C > D"         → three strict pairs
- *   "A >= B > C"            → one non-strict + one strict
+ *   Chains:    "A > B > C > D"      → A>B, B>C, C>D
+ *   Fan-out:   "X > A, B, C"        → X>A, X>B, X>C
+ *   Combined:  "X > A, B > Z"       → X>A, X>B, A>Z, B>Z
+ *   Equality:  "A = B"              → A>=B, B>=A
+ *
+ * Comma-separated names in any position create a cartesian product
+ * with adjacent segments across the operator.
  *
  * Operators:
  *   >   strictly stronger (must be in a higher tier)
@@ -43,37 +45,41 @@ export function parseChain(input: string): ParseResult {
   const parts = trimmed.split(OP_REGEX);
 
   if (parts.length < 3 || parts.length % 2 === 0) {
-    return { error: 'Use format: "A > B" or "A > B > C"' };
+    return { error: 'Use format: "A > B" or "A > B, C, D"' };
   }
 
   const pairs: ParsedPair[] = [];
 
   for (let i = 0; i < parts.length - 2; i += 2) {
-    const left = parts[i].trim();
+    const leftNames = parts[i].split(',').map((n) => n.trim()).filter(Boolean);
     const op = parts[i + 1];
-    const right = parts[i + 2].trim();
+    const rightNames = parts[i + 2].split(',').map((n) => n.trim()).filter(Boolean);
 
-    if (!left || !right) {
+    if (leftNames.length === 0 || rightNames.length === 0) {
       return { error: `Missing character name around "${op}"` };
     }
 
-    switch (op) {
-      case '>':
-        pairs.push({ superiorName: left, inferiorName: right, strict: true });
-        break;
-      case '>=':
-        pairs.push({ superiorName: left, inferiorName: right, strict: false });
-        break;
-      case '=':
-        pairs.push({ superiorName: left, inferiorName: right, strict: false });
-        pairs.push({ superiorName: right, inferiorName: left, strict: false });
-        break;
-      case '<=':
-        pairs.push({ superiorName: right, inferiorName: left, strict: false });
-        break;
-      case '<':
-        pairs.push({ superiorName: right, inferiorName: left, strict: true });
-        break;
+    for (const left of leftNames) {
+      for (const right of rightNames) {
+        switch (op) {
+          case '>':
+            pairs.push({ superiorName: left, inferiorName: right, strict: true });
+            break;
+          case '>=':
+            pairs.push({ superiorName: left, inferiorName: right, strict: false });
+            break;
+          case '=':
+            pairs.push({ superiorName: left, inferiorName: right, strict: false });
+            pairs.push({ superiorName: right, inferiorName: left, strict: false });
+            break;
+          case '<=':
+            pairs.push({ superiorName: right, inferiorName: left, strict: false });
+            break;
+          case '<':
+            pairs.push({ superiorName: right, inferiorName: left, strict: true });
+            break;
+        }
+      }
     }
   }
 
