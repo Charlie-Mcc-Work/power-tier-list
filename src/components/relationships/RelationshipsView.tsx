@@ -2,7 +2,6 @@ import { useCharacters } from '../../hooks/use-characters';
 import { useRelationships } from '../../hooks/use-relationships';
 import { RelationshipInput } from './RelationshipInput';
 import { RelationshipList } from './RelationshipList';
-import { RankedList } from './RankedList';
 import { CycleWarning } from './CycleWarning';
 
 export function RelationshipsView() {
@@ -13,10 +12,6 @@ export function RelationshipsView() {
     <div className="space-y-6">
       <RelationshipInput characters={characters} />
       <CycleWarning
-        relationships={relationships}
-        characters={characters}
-      />
-      <RankedList
         relationships={relationships}
         characters={characters}
       />
