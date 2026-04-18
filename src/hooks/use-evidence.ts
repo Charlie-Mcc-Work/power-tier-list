@@ -1,9 +1,14 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
 import type { Evidence, EvidenceKind } from '../types';
+import { getActiveTierListId } from './use-tier-list';
 
 export function useEvidence(): Evidence[] {
-  return useLiveQuery(() => db.evidence.toArray(), []) ?? [];
+  const tierListId = getActiveTierListId();
+  return useLiveQuery(
+    () => db.evidence.where('tierListId').equals(tierListId).toArray(),
+    [tierListId],
+  ) ?? [];
 }
 
 export function useEvidenceForCharacter(characterId: string | null): Evidence[] {
@@ -37,9 +42,11 @@ export async function addEvidence(
   relationshipIds: string[] = [],
   source?: string,
 ): Promise<string> {
+  const tierListId = getActiveTierListId();
   const id = crypto.randomUUID();
   await db.evidence.add({
     id,
+    tierListId,
     kind,
     text,
     characterIds,
@@ -48,7 +55,6 @@ export async function addEvidence(
     createdAt: Date.now(),
   });
 
-  // Link evidence to relationships
   for (const relId of relationshipIds) {
     const rel = await db.relationships.get(relId);
     if (rel) {
@@ -65,7 +71,6 @@ export async function deleteEvidence(id: string): Promise<void> {
   const evidence = await db.evidence.get(id);
   if (!evidence) return;
 
-  // Unlink from relationships
   for (const relId of evidence.relationshipIds) {
     const rel = await db.relationships.get(relId);
     if (rel) {

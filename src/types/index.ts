@@ -19,6 +19,7 @@ export const DEFAULT_TIER_DEFS: TierDefinition[] = [
 
 export interface Character {
   id: string;
+  tierListId: string;
   name: string;
   imageId?: string;
   createdAt: number;
@@ -43,6 +44,7 @@ export interface TierList {
 
 export interface Relationship {
   id: string;
+  tierListId: string;
   superiorId: string;
   inferiorId: string;
   /** true = must be in a strictly higher tier (>), false = same tier OK (>=) */
@@ -56,6 +58,7 @@ export type EvidenceKind = 'feat' | 'statement' | 'title';
 
 export interface Evidence {
   id: string;
+  tierListId: string;
   kind: EvidenceKind;
   characterIds: string[];
   relationshipIds: string[];

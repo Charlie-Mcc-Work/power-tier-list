@@ -1,9 +1,14 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
 import type { Character } from '../types';
+import { getActiveTierListId } from './use-tier-list';
 
 export function useCharacters(): Character[] {
-  return useLiveQuery(() => db.characters.toArray(), []) ?? [];
+  const tierListId = getActiveTierListId();
+  return useLiveQuery(
+    () => db.characters.where('tierListId').equals(tierListId).toArray(),
+    [tierListId],
+  ) ?? [];
 }
 
 export function useCharacter(id: string | null): Character | undefined {
@@ -15,6 +20,7 @@ export function useCharacter(id: string | null): Character | undefined {
 
 export async function addCharacter(name: string, imageFile?: File): Promise<string> {
   const id = crypto.randomUUID();
+  const tierListId = getActiveTierListId();
   const now = Date.now();
 
   let imageId: string | undefined;
@@ -31,6 +37,7 @@ export async function addCharacter(name: string, imageFile?: File): Promise<stri
 
   await db.characters.add({
     id,
+    tierListId,
     name,
     imageId,
     createdAt: now,
@@ -43,7 +50,8 @@ export async function addCharacter(name: string, imageFile?: File): Promise<stri
 export async function addBulkCharactersByName(
   names: string[],
 ): Promise<{ added: number; skipped: number }> {
-  const existing = await db.characters.toArray();
+  const tierListId = getActiveTierListId();
+  const existing = await db.characters.where('tierListId').equals(tierListId).toArray();
   const existingNames = new Set(existing.map((c) => c.name.toLowerCase()));
 
   const now = Date.now();
@@ -60,6 +68,7 @@ export async function addBulkCharactersByName(
     existingNames.add(trimmed.toLowerCase());
     toAdd.push({
       id: crypto.randomUUID(),
+      tierListId,
       name: trimmed,
       createdAt: now,
       updatedAt: now,
@@ -86,7 +95,6 @@ export async function setCharacterImage(characterId: string, imageFile: File): P
     createdAt: Date.now(),
   });
 
-  // Delete old image if it exists
   if (character.imageId) {
     await db.images.delete(character.imageId).catch(() => {});
   }
@@ -106,14 +114,12 @@ export async function deleteCharacter(id: string): Promise<void> {
     if (character.imageId) await db.images.delete(character.imageId);
     await db.characters.delete(id);
 
-    // Remove relationships involving this character
     const rels = await db.relationships
       .where('superiorId').equals(id)
       .or('inferiorId').equals(id)
       .toArray();
     await db.relationships.bulkDelete(rels.map((r) => r.id));
 
-    // Remove character from evidence characterIds
     const evidence = await db.evidence.where('characterIds').equals(id).toArray();
     for (const ev of evidence) {
       await db.evidence.update(ev.id, {
@@ -121,12 +127,11 @@ export async function deleteCharacter(id: string): Promise<void> {
       });
     }
 
-    // Remove from tier lists
-    const tierLists = await db.tierLists.toArray();
-    for (const tl of tierLists) {
-      const filtered = tl.tiers.filter((t) => t.characterId !== id);
-      if (filtered.length !== tl.tiers.length) {
-        await db.tierLists.update(tl.id, { tiers: filtered, updatedAt: Date.now() });
+    const tierList = await db.tierLists.get(character.tierListId);
+    if (tierList) {
+      const filtered = tierList.tiers.filter((t) => t.characterId !== id);
+      if (filtered.length !== tierList.tiers.length) {
+        await db.tierLists.update(tierList.id, { tiers: filtered, updatedAt: Date.now() });
       }
     }
   });

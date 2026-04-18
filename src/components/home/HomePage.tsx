@@ -1,16 +1,12 @@
 import { useState } from 'react';
 import { useUIStore } from '../../stores/ui-store';
 import { useAllTierLists, createTierList, deleteTierList, updateTierListName } from '../../hooks/use-tier-list';
-import { useCharacters } from '../../hooks/use-characters';
-import { useRelationships } from '../../hooks/use-relationships';
 import { setActiveTierListId } from '../../hooks/use-tier-list';
-import type { TierList, TierDefinition } from '../../types';
+import type { TierList } from '../../types';
 import { DEFAULT_TIER_DEFS } from '../../types';
 
 export function HomePage() {
   const tierLists = useAllTierLists();
-  const characters = useCharacters();
-  const relationships = useRelationships();
   const openTierList = useUIStore((s) => s.openTierList);
   const [newName, setNewName] = useState('');
 
@@ -39,7 +35,7 @@ export function HomePage() {
         <div className="mb-10">
           <h1 className="text-3xl font-bold text-white mb-2">Power Tier List</h1>
           <p className="text-gray-500 text-sm">
-            {characters.length} characters &middot; {relationships.length} relationships
+            {tierLists.length} tier list{tierLists.length !== 1 ? 's' : ''}
           </p>
         </div>
 
