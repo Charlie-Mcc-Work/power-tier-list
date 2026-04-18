@@ -1,5 +1,21 @@
 # Development Guide
 
+## Mandatory Pre-Commit Rule
+
+**Before every commit, you MUST check whether the help panel (`src/components/layout/HelpPanel.tsx`) needs updating.** If the commit changes any of the following, read HelpPanel.tsx and update it to match:
+
+- Operators or their enforcement behavior
+- Relationship input syntax (chains, fan-out, autocomplete, paste)
+- Keyboard shortcuts or controls
+- Drag-and-drop behavior or constraint enforcement
+- Tier management (add/remove/rename/reorder/recolor)
+- Image display modes or card sizing
+- Presentation mode
+- Backups/snapshots or export/import
+- Any new user-facing feature or removal of an existing one
+
+The help panel is the user's reference for how the app works. If it's wrong, the user is misled. **Do not skip this check.**
+
 ## Build & Run
 
 ```bash
@@ -15,20 +31,27 @@ Local-first app — all state lives in IndexedDB via Dexie.js. No backend. React
 
 **Data flow:** User action → hook function (writes to IndexedDB) → live query fires → component re-renders.
 
-**Constraint enforcement:** Relationships are enforced rules, not suggestions. The enforcement engine (`src/lib/enforce-constraints.ts`) runs after every drag-drop and relationship change. It uses BFS to cascade constraints through the relationship graph, respecting the strict (`>`, 1-tier gap) vs non-strict (`>=`, same tier OK) distinction.
+**Constraint enforcement:** Relationships are enforced rules, not suggestions. The enforcement engine (`src/lib/enforce-constraints.ts`) runs after every drag-drop and relationship change. It uses BFS to cascade constraints through the relationship graph, respecting the strict (`>`, 1-tier gap) vs non-strict (`>=`, same tier OK + within-tier ordering) distinction.
+
+**Per-list scoping:** Characters, relationships, and evidence are scoped to each tier list via `tierListId`. Hooks filter by `getActiveTierListId()`. Deleting a tier list cascades to all associated data.
 
 ## Key Files
 
-- `src/lib/enforce-constraints.ts` — Constraint cascade engine (enforceAfterMove, autoPlaceAndEnforce)
-- `src/lib/graph.ts` — Graph algorithms (topological sort, Tarjan's SCC, layered ranking)
-- `src/lib/relationship-parser.ts` — Chain parser for "A > B > C" syntax
-- `src/hooks/use-tier-list.ts` — Tier assignment CRUD + enforceAndAutoPlace
-- `src/hooks/use-relationships.ts` — Relationship CRUD + bulk/chain add
-- `src/db/database.ts` — Dexie schema definition (5 tables)
+- `src/lib/enforce-constraints.ts` — Constraint cascade engine (enforceAfterMove, autoPlaceAndEnforce, enforceWithinTierOrder)
+- `src/lib/graph.ts` — Graph algorithms (topological sort, Tarjan's SCC, cycle detection)
+- `src/lib/relationship-parser.ts` — Chain/fan-out parser for "A > B, C, D" syntax
+- `src/hooks/use-tier-list.ts` — Tier assignment CRUD + enforceAndAutoPlace + tier def management
+- `src/hooks/use-relationships.ts` — Relationship CRUD + chain add + cycle prevention
+- `src/db/database.ts` — Dexie schema (6 tables including snapshots)
+- `src/db/export-import.ts` — Export/import + snapshot backup system
+- `src/components/layout/HelpPanel.tsx` — User-facing reference for all rules and controls (KEEP UP TO DATE)
 
 ## Conventions
 
 - Operators: `>` (strict), `>=` (non-strict), `=` (bidirectional >=), `<=`, `<`
-- Tier indices: S=0, A=1, B=2, C=3, D=4, F=5 (lower index = better tier)
+- Tier definitions are per-list (custom names, colors, order)
 - Character images are optional (imageId is nullable)
 - The `strict` field on relationships controls enforcement gap (true = 1-tier minimum, false = 0)
+- Non-strict `>=` also enforces within-tier ordering (A before B in the same tier)
+- Characters, relationships, evidence are scoped by `tierListId`
+- Auto-snapshots on app start + before imports; last 20 kept
