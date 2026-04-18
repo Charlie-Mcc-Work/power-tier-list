@@ -1,5 +1,4 @@
 import type { Relationship, TierAssignment } from '../types';
-import { buildGraph, deriveLayeredRanking } from './graph';
 
 function toIdx(tierId: string, tierIds: string[]): number {
   return tierIds.indexOf(tierId);
@@ -136,60 +135,49 @@ export function autoPlaceAndEnforce(
   const unranked = [...inRels].filter((id) => !tierMap.has(id));
 
   if (unranked.length > 0) {
+    // Place each unranked character at the HIGHEST tier that respects
+    // all existing constraints. Iterate until stable, since placing
+    // one character may enable placing others.
     const remaining = new Set(unranked);
     let prevSize = remaining.size + 1;
 
     while (remaining.size > 0 && remaining.size < prevSize) {
       prevSize = remaining.size;
       for (const charId of [...remaining]) {
-        let lo = 0;
-        let hasConstraint = false;
+        // Highest valid = max of (each superior's tier + gap for strict)
+        let lo = 0; // lowest allowed tier index (0 = highest tier)
+        let hasPlacedNeighbor = false;
 
         for (const [sup, edge] of rev.get(charId) ?? new Map()) {
           const si = tierMap.get(sup);
           if (si != null) {
             lo = Math.max(lo, si + (edge.strict ? 1 : 0));
-            hasConstraint = true;
+            hasPlacedNeighbor = true;
           }
         }
-        for (const [inf] of fwd.get(charId) ?? new Map()) {
+
+        // Also check inferiors: we must be ABOVE them
+        for (const [inf, edge] of fwd.get(charId) ?? new Map()) {
           const ii = tierMap.get(inf);
-          if (ii != null) hasConstraint = true;
+          if (ii != null) {
+            // We need to be at ii - gap or higher (lower index)
+            // This is an upper bound, but we prefer the highest (lowest index)
+            // so lo stays as the binding constraint from superiors
+            hasPlacedNeighbor = true;
+          }
         }
 
-        if (hasConstraint) {
+        if (hasPlacedNeighbor) {
           tierMap.set(charId, Math.min(lo, maxIdx));
           remaining.delete(charId);
         }
       }
     }
 
-    // Characters with no placed neighbors — use graph layer derivation
-    if (remaining.size > 0) {
-      const graph = buildGraph(relationships);
-      const layers = deriveLayeredRanking(graph);
-      if (layers) {
-        const numLayers = layers.size;
-        const sortedLayers = [...layers.entries()].sort(([a], [b]) => a - b);
-        for (const [layerIdx, charIds] of sortedLayers) {
-          const tierIdx = Math.min(
-            Math.floor((layerIdx / Math.max(numLayers, 1)) * numTiers),
-            maxIdx,
-          );
-          for (const charId of charIds) {
-            if (remaining.has(charId)) {
-              tierMap.set(charId, tierIdx);
-              remaining.delete(charId);
-            }
-          }
-        }
-      } else {
-        // Fallback: put in middle tier
-        const midIdx = Math.min(3, maxIdx);
-        for (const charId of remaining) {
-          tierMap.set(charId, midIdx);
-        }
-      }
+    // Characters with no placed neighbors at all — place at top tier (0).
+    // The fixpoint enforcement below will push them down as needed.
+    for (const charId of remaining) {
+      tierMap.set(charId, 0);
     }
   }
 
