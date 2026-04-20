@@ -1,13 +1,9 @@
-import { useState } from 'react';
-
-let openFn: (() => void) | null = null;
-export function openHelpPanel() {
-  openFn?.();
-}
+import { useUIStore } from '../../stores/ui-store';
 
 export function HelpPanel() {
-  const [open, setOpen] = useState(false);
-  openFn = () => setOpen(true);
+  const open = useUIStore((s) => s.helpOpen);
+  const setHelpOpen = useUIStore((s) => s.setHelpOpen);
+  const setOpen = (v: boolean) => setHelpOpen(v);
 
   if (!open) return null;
 
@@ -71,6 +67,24 @@ export function HelpPanel() {
               relationship. Lines starting with <code className="text-gray-300">#</code> are ignored.
               Chains and fan-out syntax work per line.
             </p>
+            <p className="text-xs text-gray-400 mt-2">
+              Name matching is strict: a line must use either the exact character name or an
+              unambiguous prefix (one that matches exactly one character). If a prefix could
+              mean multiple characters, the line is flagged as ambiguous — type the full name.
+            </p>
+          </section>
+
+          {/* Browsing the list */}
+          <section>
+            <h3 className="text-white font-medium mb-2">Browse &amp; Filter</h3>
+            <p className="text-xs text-gray-400">
+              Above the relationship list you can filter by name (matches either endpoint) and
+              sort by <span className="text-gray-300">Newest</span> (default),
+              <span className="text-gray-300"> Oldest</span>, or alphabetically
+              (<span className="text-gray-300">A–Z</span>, by the name on the left).
+              Equality rows are shown with the alphabetically-first name on the left so the
+              sort order matches what you see.
+            </p>
           </section>
 
           {/* Enforcement */}
@@ -123,6 +137,35 @@ export function HelpPanel() {
             </p>
           </section>
 
+          {/* Deleting characters */}
+          <section>
+            <h3 className="text-white font-medium mb-2">Removing Characters</h3>
+            <ul className="text-xs space-y-1 text-gray-400">
+              <li>
+                <span className="text-gray-300">Hover a card in the Unranked pool</span> and click the
+                small red <code className="text-gray-300">×</code> at the top-right to delete a single
+                character.
+              </li>
+              <li>
+                <span className="text-gray-300">&ldquo;Select to delete…&rdquo;</span> in the Unranked
+                header enters bulk mode. Tap cards to toggle them (checkmarks appear), use
+                <span className="text-gray-300"> Select all</span> /
+                <span className="text-gray-300"> Clear</span>, then
+                <span className="text-gray-300"> Delete N</span> wipes them in one transaction.
+                Drag-and-drop is disabled while select mode is active.
+              </li>
+              <li>
+                Deleting a character also removes their image, every relationship they appear in,
+                and strips them out of any evidence lists. All restorable via Backups if you
+                made a mistake.
+              </li>
+              <li>
+                Clicking any card (not in select mode) still opens the Character Details panel,
+                which also has a <span className="text-gray-300">Delete Character</span> button.
+              </li>
+            </ul>
+          </section>
+
           {/* Keyboard */}
           <section>
             <h3 className="text-white font-medium mb-2">Other Controls</h3>
@@ -132,12 +175,51 @@ export function HelpPanel() {
               <li><span className="text-gray-300">XS / S / M / L</span> — Card size presets</li>
               <li><span className="text-gray-300">Fit / Fill</span> — Image display: show full image or crop to square</li>
               <li><span className="text-gray-300">Present</span> — Fullscreen view for screenshots (Escape to exit)</li>
-              <li><span className="text-gray-300">Backups</span> — Auto-snapshots on every app start, restorable anytime</li>
-              <li><span className="text-gray-300">Export / Import</span> — Save/load as JSON file</li>
+              <li>
+                <span className="text-gray-300">Backups</span> — manual only, no timers or
+                background work. Four buttons in the Backups panel:
+                <span className="text-gray-300"> (1) Create Snapshot</span> (in-browser, fast, for
+                quick undo — up to 20 kept);
+                <span className="text-gray-300"> (2) Download (fast)</span> saves a small core
+                JSON to your Downloads folder (no image blobs);
+                <span className="text-gray-300"> (3) Download full</span> includes every image
+                base64-encoded — use occasionally as a complete archive;
+                <span className="text-gray-300"> (4) Picked folder (Chromium)</span> writes to a
+                folder of your choice with one click. On Firefox, point the Downloads folder at
+                a cloud-synced directory (Dropbox / OneDrive / iCloud Drive) and disk failures
+                won&rsquo;t cost you your list. Snapshots are also created just before an Import
+                so you can revert.
+              </li>
+              <li>
+                <span className="text-gray-300">Export</span> — saves <em>only the tier list you&rsquo;re currently
+                viewing</em>, along with its characters, relationships, evidence, and the images those
+                characters use. The file is called <code>tierlist-&lt;name&gt;-YYYY-MM-DD.json</code>.
+                <br />
+                <span className="text-gray-300">Import</span> — pick a file, then the dialog offers two choices:
+                <span className="text-gray-300"> Replace current list</span> wipes the list you&rsquo;re viewing
+                and fills it with the file&rsquo;s contents (your other tier lists are untouched);
+                <span className="text-gray-300"> Add as new list</span> copies the file into a brand-new tier list
+                with fresh ids, leaving everything you have alone. A backup snapshot is taken before either
+                so the operation is reversible from the Backups panel.
+              </li>
               <li><span className="text-gray-300">Mobile</span> — Touch drag with long-press. Layout auto-switches to tabs on small screens.</li>
               <li><span className="text-gray-300">Undo / Redo</span> — Ctrl+Z to undo, Ctrl+Shift+Z or Ctrl+Y to redo. Tracks drag moves and relationship placements (last 50 states).</li>
               <li><span className="text-gray-300">Save Image</span> — In presentation mode, click "Save Image" to download the tier list as a PNG.</li>
-              <li><span className="text-gray-300">Graph</span> — Click "Show Graph" in the relationships panel to see the relationship DAG. Pan by dragging, zoom with mousewheel.</li>
+              <li>
+                <span className="text-gray-300">Graph</span> — Click &quot;Show Graph&quot; in the relationships panel.
+                Two layout modes, toggle in the toolbar:
+                <span className="text-gray-300"> Tier</span> groups nodes into rows by their current tier
+                assignment (S on top, F on bottom; an Unranked row underneath for characters not yet placed) —
+                great for seeing how the DAG sits against your rankings.
+                <span className="text-gray-300"> DAG</span> is an auto-layered graph (dagre) that shows the
+                relationship structure on its own, ignoring tier assignments — handy when you want to see the
+                pure logical hierarchy.
+                Drag or scroll to pan, hold <Key>Ctrl</Key>/<Key>⌘</Key> + scroll to zoom (cursor-anchored),
+                or use the <Key>+</Key>/<Key>−</Key>/<Key>Fit</Key> buttons.
+                Click <span className="text-gray-300">Fullscreen</span> to open it viewport-filling.
+                Shortcuts in fullscreen: <Key>F</Key>/<Key>0</Key> to fit, <Key>+</Key>/<Key>-</Key> to zoom,
+                arrow keys to pan, <Key>Esc</Key> to exit.
+              </li>
               <li><span className="text-gray-300">Sync</span> — Connect to a self-hosted sync server to push/pull tier lists between devices. Set up the server with Docker, enter the URL and token.</li>
               <li><span className="text-gray-300">Share</span> — Generate a read-only link for the current tier list (requires sync server).</li>
             </ul>

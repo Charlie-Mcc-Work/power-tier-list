@@ -2,32 +2,27 @@ import { useState, useEffect } from 'react';
 import { getSyncConfig, setSyncConfig, clearSyncConfig, syncPush, syncPull, createShareLink, checkConnection } from '../../lib/sync';
 import { useUIStore } from '../../stores/ui-store';
 
-let openFn: (() => void) | null = null;
-export function openSyncPanel() {
-  openFn?.();
-}
-
 export function SyncPanel() {
-  const [open, setOpen] = useState(false);
-  const [url, setUrl] = useState('');
-  const [token, setToken] = useState('');
+  const open = useUIStore((s) => s.syncOpen);
+  const setSyncOpen = useUIStore((s) => s.setSyncOpen);
+  const setOpen = (v: boolean) => setSyncOpen(v);
+  // Lazy-initialize form fields from the saved sync config so we don't
+  // setState synchronously in an effect body.
+  const [url, setUrl] = useState(() => getSyncConfig()?.url ?? '');
+  const [token, setToken] = useState(() => getSyncConfig()?.token ?? '');
   const [connected, setConnected] = useState<boolean | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const activeTierListId = useUIStore((s) => s.activeTierListId);
 
-  openFn = () => setOpen(true);
-
+  // When the panel opens, re-check connection. Cancellation guards against
+  // a late resolve updating state after the user has already closed the panel.
   useEffect(() => {
-    if (open) {
-      const config = getSyncConfig();
-      if (config) {
-        setUrl(config.url);
-        setToken(config.token);
-        checkConnection().then(setConnected);
-      }
-    }
+    if (!open || !getSyncConfig()) return;
+    let cancelled = false;
+    checkConnection().then((ok) => { if (!cancelled) setConnected(ok); });
+    return () => { cancelled = true; };
   }, [open]);
 
   async function handleSave() {

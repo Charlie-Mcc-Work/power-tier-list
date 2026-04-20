@@ -1,10 +1,13 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useUIStore, CARD_SIZES } from '../../stores/ui-store';
 import type { ImageDisplayMode, CardSize } from '../../stores/ui-store';
-import { exportData, importData, downloadExport } from '../../db/export-import';
-import { openSnapshotManager } from './SnapshotManager';
-import { openHelpPanel } from './HelpPanel';
-import { openSyncPanel } from './SyncPanel';
+import {
+  exportSingleList,
+  importSingleListReplace,
+  importSingleListAsNew,
+  detectImportFileKind,
+  downloadExport,
+} from '../../db/export-import';
 import type { AppView, LayoutMode } from '../../types';
 
 const tabs: { view: AppView; label: string }[] = [
@@ -32,20 +35,110 @@ export function NavBar() {
     imageDisplay, setImageDisplay, cardSize, setCardSize,
     setPresenting, navigateHome, showTierCounts, setShowTierCounts,
     searchQuery, setSearchQuery,
+    setHelpOpen, setSnapshotsOpen, setSyncOpen,
+    activeTierListId, openTierList,
   } = useUIStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [status, setStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Auto-clear status after a short while.
+  useEffect(() => {
+    if (!status) return;
+    const id = setTimeout(() => setStatus(null), status.kind === 'err' ? 8000 : 4000);
+    return () => clearTimeout(id);
+  }, [status]);
 
   async function handleExport() {
-    const json = await exportData();
-    downloadExport(json);
+    if (busy) return;
+    if (!activeTierListId) {
+      setStatus({ kind: 'err', text: 'Open a tier list first — Export saves the list you are viewing.' });
+      return;
+    }
+    setBusy(true);
+    setStatus(null);
+    try {
+      const json = await exportSingleList(activeTierListId);
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      // Prefer the tier-list name in the filename; fall back to date if empty.
+      const rawName = JSON.parse(json).tierList?.name ?? '';
+      const safeName = String(rawName).replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-|-$/g, '') || 'list';
+      const filename = `tierlist-${safeName}-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.json`;
+      downloadExport(json, filename);
+      const kb = Math.round(json.length / 1024);
+      setStatus({ kind: 'ok', text: `Exported "${rawName}" (${kb > 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB'})` });
+    } catch (err) {
+      setStatus({ kind: 'err', text: `Export failed: ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    await importData(text);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (fileInputRef.current) fileInputRef.current.value = ''; // allow re-picking same file
+    if (busy) return;
+
+    setBusy(true);
+    setStatus(null);
+    try {
+      const text = await file.text();
+      const detected = detectImportFileKind(text);
+
+      if (detected.kind === 'unknown') {
+        setStatus({ kind: 'err', text: detected.error });
+        return;
+      }
+
+      if (detected.kind === 'full-db') {
+        setStatus({
+          kind: 'err',
+          text: 'This file is a full-database backup, not a single-list export. Use Backups → Restore from file for full-DB restores.',
+        });
+        return;
+      }
+
+      // Single-list file. Offer Replace current / Add new / Cancel.
+      const listName = detected.data.tierList.name || 'Untitled';
+      const charCount = detected.data.characters.length;
+      const currentListBlurb = activeTierListId
+        ? `\n\nReplace: the list you're currently viewing will be overwritten with "${listName}" (its contents wiped, then filled from the file). Your other tier lists are untouched.`
+        : '\n\n(No active list, so Replace is unavailable — Add as new list only.)';
+
+      const wantsReplace = activeTierListId
+        ? window.confirm(
+            `Import list "${listName}" (${charCount} character${charCount === 1 ? '' : 's'}) from "${file.name}"?${currentListBlurb}\n\nClick OK to REPLACE the current list with this one, or Cancel to see the Add-as-new option.`,
+          )
+        : false;
+
+      if (wantsReplace && activeTierListId) {
+        const summary = await importSingleListReplace(activeTierListId, detected.data);
+        setStatus({
+          kind: 'ok',
+          text: `Replaced current list with "${listName}": ${summary.characters} character${summary.characters === 1 ? '' : 's'}, ${summary.relationships} relationship${summary.relationships === 1 ? '' : 's'}, ${summary.images} image${summary.images === 1 ? '' : 's'}`,
+        });
+        return;
+      }
+
+      const wantsAdd = window.confirm(
+        `Add "${listName}" as a new tier list alongside your existing ones? A backup snapshot is taken first so this is reversible.\n\nClick OK to add, or Cancel to abort.`,
+      );
+      if (!wantsAdd) return;
+
+      const summary = await importSingleListAsNew(detected.data);
+      // Hop to the new list so the user sees it immediately.
+      openTierList(summary.newTierListId);
+      setStatus({
+        kind: 'ok',
+        text: `Added "${listName}": ${summary.characters} character${summary.characters === 1 ? '' : 's'}, ${summary.relationships} relationship${summary.relationships === 1 ? '' : 's'}, ${summary.images} image${summary.images === 1 ? '' : 's'}`,
+      });
+    } catch (err) {
+      setStatus({ kind: 'err', text: `Import failed: ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -174,7 +267,7 @@ export function NavBar() {
 
         {/* Sync */}
         <button
-          onClick={openSyncPanel}
+          onClick={() => setSyncOpen(true)}
           className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
                      rounded transition-colors"
         >
@@ -192,7 +285,7 @@ export function NavBar() {
         </button>
 
         <button
-          onClick={openSnapshotManager}
+          onClick={() => setSnapshotsOpen(true)}
           className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
                      rounded transition-colors"
         >
@@ -200,20 +293,22 @@ export function NavBar() {
         </button>
         <button
           onClick={handleExport}
+          disabled={busy}
           className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
-                     rounded transition-colors"
+                     rounded transition-colors disabled:opacity-50"
         >
-          Export
+          {busy ? '…' : 'Export'}
         </button>
         <button
           onClick={() => fileInputRef.current?.click()}
+          disabled={busy}
           className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
-                     rounded transition-colors"
+                     rounded transition-colors disabled:opacity-50"
         >
-          Import
+          {busy ? '…' : 'Import'}
         </button>
         <button
-          onClick={openHelpPanel}
+          onClick={() => setHelpOpen(true)}
           className="w-7 h-7 flex items-center justify-center text-xs text-gray-400 hover:text-white
                      bg-gray-700 hover:bg-gray-600 rounded-full transition-colors"
           title="How it works"
@@ -228,6 +323,27 @@ export function NavBar() {
           className="hidden"
         />
       </div>
+
+      {status && (
+        <div
+          className={`fixed top-3 left-1/2 -translate-x-1/2 z-[400] px-4 py-2 rounded-lg shadow-xl border text-xs max-w-xl
+                      ${status.kind === 'ok'
+                        ? 'bg-green-900/90 border-green-700 text-green-100'
+                        : 'bg-red-900/90 border-red-700 text-red-100'}`}
+          role="status"
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex-1">{status.text}</span>
+            <button
+              onClick={() => setStatus(null)}
+              className="opacity-60 hover:opacity-100"
+              aria-label="Dismiss"
+            >
+              x
+            </button>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

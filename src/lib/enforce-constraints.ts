@@ -217,10 +217,15 @@ export function autoPlaceAndEnforce(
     }
   }
 
-  // Enforce all constraints (fixpoint: push inferiors down, respecting strict gaps)
+  // Enforce all constraints (fixpoint: push inferiors down, respecting strict gaps).
+  // Upper bound: each character can be pushed down at most tierIds.length times,
+  // so tierMap.size * tierIds.length is a safe cap. If we ever exceed it something
+  // has gone sideways (e.g., unsatisfiable relationships) — surface it instead of
+  // silently returning.
+  const MAX_ITER = Math.max(100, tierMap.size * tierIds.length);
   let changed = true;
   let iter = 0;
-  while (changed && iter < 1000) {
+  while (changed && iter < MAX_ITER) {
     changed = false;
     iter++;
     for (const rel of relationships) {
@@ -233,6 +238,12 @@ export function autoPlaceAndEnforce(
         changed = true;
       }
     }
+  }
+  if (iter >= MAX_ITER && changed) {
+    log.warn('enforce', `autoPlaceAndEnforce hit iteration cap (${MAX_ITER}) — constraints may be unsatisfiable`, {
+      nodes: tierMap.size,
+      relationships: relationships.length,
+    });
   }
 
   return enforceWithinTierOrder(

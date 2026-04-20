@@ -14,9 +14,10 @@ const MAX_SUGGESTIONS = 8;
 export function RelationshipInput({ characters }: Props) {
   const [input, setInput] = useState('');
   const [note, setNote] = useState('');
-  const [suggestions, setSuggestions] = useState<Character[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const [showDropdown, setShowDropdown] = useState(false);
+  // `dismissed` inverts to showDropdown. User gestures (Escape/blur/submit/pick) set it true.
+  // Typing clears it. This replaces the previous setState-in-effect pattern.
+  const [dismissed, setDismissed] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -32,24 +33,21 @@ export function RelationshipInput({ characters }: Props) {
     return (commaNames[commaNames.length - 1] ?? '').trim();
   }, [input]);
 
-  useEffect(() => {
-    if (trailingName.length === 0) {
-      setSuggestions([]);
-      setShowDropdown(false);
-      return;
-    }
-    const matches = fuzzyMatchCharacter(trailingName, characters).slice(0, MAX_SUGGESTIONS);
-    setSuggestions(matches);
-    setSelectedIdx(0);
-    setShowDropdown(matches.length > 0);
+  const suggestions = useMemo(() => {
+    if (trailingName.length === 0) return [];
+    return fuzzyMatchCharacter(trailingName, characters).slice(0, MAX_SUGGESTIONS);
   }, [trailingName, characters]);
+
+  const showDropdown = !dismissed && suggestions.length > 0;
+  // Clamp selectedIdx at read time so stale indices don't point off the end.
+  const activeIdx = Math.min(selectedIdx, Math.max(0, suggestions.length - 1));
 
   useEffect(() => {
     if (showDropdown && dropdownRef.current) {
-      const el = dropdownRef.current.children[selectedIdx] as HTMLElement | undefined;
+      const el = dropdownRef.current.children[activeIdx] as HTMLElement | undefined;
       el?.scrollIntoView({ block: 'nearest' });
     }
-  }, [selectedIdx, showDropdown]);
+  }, [activeIdx, showDropdown]);
 
   function completeWithCharacter(char: Character) {
     const parts = input.split(OP_REGEX);
@@ -71,7 +69,7 @@ export function RelationshipInput({ characters }: Props) {
     }
 
     setInput(input.slice(0, prefixEnd) + spacer + char.name + ' ');
-    setShowDropdown(false);
+    setDismissed(true);
     inputRef.current?.focus();
   }
 
@@ -81,19 +79,19 @@ export function RelationshipInput({ characters }: Props) {
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setSelectedIdx((prev) => (prev + 1) % suggestions.length);
+        setSelectedIdx((activeIdx + 1) % suggestions.length);
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setSelectedIdx((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+        setSelectedIdx((activeIdx - 1 + suggestions.length) % suggestions.length);
         break;
       case 'Tab':
         e.preventDefault();
-        completeWithCharacter(suggestions[selectedIdx]);
+        completeWithCharacter(suggestions[activeIdx]);
         break;
       case 'Escape':
         e.preventDefault();
-        setShowDropdown(false);
+        setDismissed(true);
         break;
     }
   }
@@ -107,7 +105,7 @@ export function RelationshipInput({ characters }: Props) {
     if (!input.trim() || processing) return;
     setError(null);
     setSuccess(null);
-    setShowDropdown(false);
+    setDismissed(true);
     setProcessing(true);
 
     const result = await processLine(input);
@@ -176,15 +174,15 @@ export function RelationshipInput({ characters }: Props) {
             onChange={(e) => {
               setInput(e.target.value);
               setError(null);
+              setDismissed(false);
+              setSelectedIdx(0);
             }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             onFocus={() => {
-              if (trailingName.length > 0 && suggestions.length > 0) {
-                setShowDropdown(true);
-              }
+              if (trailingName.length > 0) setDismissed(false);
             }}
-            onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+            onBlur={() => setTimeout(() => setDismissed(true), 150)}
             placeholder='Type a name... (try "Luffy > Zoro, Sanji, Nami")'
             autoComplete="off"
             spellCheck={false}
@@ -211,13 +209,13 @@ export function RelationshipInput({ characters }: Props) {
                   onMouseEnter={() => setSelectedIdx(idx)}
                   className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2
                              transition-colors border-b border-gray-800/50 last:border-0 ${
-                    idx === selectedIdx
+                    idx === activeIdx
                       ? 'bg-amber-600/30 text-white'
                       : 'text-gray-300 hover:bg-gray-800/50'
                   }`}
                 >
                   <span className="font-mono">{char.name}</span>
-                  {idx === selectedIdx && (
+                  {idx === activeIdx && (
                     <span className="ml-auto text-[10px] text-gray-500">Tab</span>
                   )}
                 </button>

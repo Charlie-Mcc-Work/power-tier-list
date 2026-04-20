@@ -6,18 +6,19 @@ import { SnapshotManager } from './components/layout/SnapshotManager';
 import { HelpPanel } from './components/layout/HelpPanel';
 import { SyncPanel } from './components/layout/SyncPanel';
 import { useUIStore } from './stores/ui-store';
-import { autoSnapshotOnStart } from './db/export-import';
+import { requestPersistentStorage } from './db/auto-backup';
 
 function App() {
   const page = useUIStore((s) => s.page);
   const presenting = useUIStore((s) => s.presenting);
-  const didSnapshot = useRef(false);
+  const didInit = useRef(false);
 
   useEffect(() => {
-    if (!didSnapshot.current) {
-      didSnapshot.current = true;
-      autoSnapshotOnStart();
-    }
+    if (didInit.current) return;
+    didInit.current = true;
+    // Ask the browser not to evict our IndexedDB if disk pressure gets high.
+    // This is a one-shot permission request; no timers, no background work.
+    requestPersistentStorage();
   }, []);
 
   return (

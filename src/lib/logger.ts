@@ -32,7 +32,9 @@ function openDB(): Promise<IDBDatabase> {
 }
 
 // Initialize DB connection
-openDB().then((db) => { dbReady = db; }).catch(() => {});
+openDB()
+  .then((db) => { dbReady = db; })
+  .catch((err) => console.warn('[logger] IndexedDB unavailable:', err));
 
 function persistEntry(entry: LogEntry) {
   if (!dbReady) return;
@@ -57,8 +59,9 @@ function persistEntry(entry: LogEntry) {
         };
       }
     };
-  } catch {
-    // Don't let logging failures break the app
+  } catch (err) {
+    // Don't let logging failures break the app — but don't go fully silent either.
+    console.warn('[logger] persist failed:', err);
   }
 }
 
@@ -90,15 +93,24 @@ function add(level: LogEntry['level'], source: string, message: string, data?: u
 
 async function getPersistedEntries(): Promise<LogEntry[]> {
   if (!dbReady) {
-    try { dbReady = await openDB(); } catch { return []; }
+    try {
+      dbReady = await openDB();
+    } catch (err) {
+      console.warn('[logger] getHistory: IndexedDB unavailable:', err);
+      return [];
+    }
   }
   return new Promise((resolve) => {
     try {
       const tx = dbReady!.transaction(STORE_NAME, 'readonly');
       const req = tx.objectStore(STORE_NAME).getAll();
       req.onsuccess = () => resolve(req.result ?? []);
-      req.onerror = () => resolve([]);
-    } catch {
+      req.onerror = () => {
+        console.warn('[logger] getHistory request failed:', req.error);
+        resolve([]);
+      };
+    } catch (err) {
+      console.warn('[logger] getHistory transaction failed:', err);
       resolve([]);
     }
   });
@@ -109,8 +121,8 @@ async function clearPersisted(): Promise<void> {
   try {
     const tx = dbReady.transaction(STORE_NAME, 'readwrite');
     tx.objectStore(STORE_NAME).clear();
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn('[logger] clearHistory failed:', err);
   }
 }
 
@@ -146,4 +158,6 @@ export const log = {
 // appLog.getHistory()         — persisted errors/warnings (returns Promise)
 // appLog.format(entries)      — format as text
 // appLog.clearHistory()       — wipe persisted logs
-(window as unknown as Record<string, unknown>).appLog = log;
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).appLog = log;
+}

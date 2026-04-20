@@ -2,9 +2,10 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
 import type { Evidence, EvidenceKind } from '../types';
 import { getActiveTierListId } from './use-tier-list';
+import { useUIStore } from '../stores/ui-store';
 
 export function useEvidence(): Evidence[] {
-  const tierListId = getActiveTierListId();
+  const tierListId = useUIStore((s) => s.activeTierListId) ?? 'default';
   return useLiveQuery(
     () => db.evidence.where('tierListId').equals(tierListId).toArray(),
     [tierListId],

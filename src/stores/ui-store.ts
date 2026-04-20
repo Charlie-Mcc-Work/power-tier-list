@@ -25,6 +25,9 @@ interface UIState {
   showTierCounts: boolean;
   searchQuery: string;
   selectedCharacterId: string | null;
+  helpOpen: boolean;
+  snapshotsOpen: boolean;
+  syncOpen: boolean;
   navigateHome: () => void;
   openTierList: (id: string) => void;
   setActiveView: (view: AppView) => void;
@@ -37,6 +40,9 @@ interface UIState {
   setShowTierCounts: (v: boolean) => void;
   setSearchQuery: (q: string) => void;
   selectCharacter: (id: string | null) => void;
+  setHelpOpen: (v: boolean) => void;
+  setSnapshotsOpen: (v: boolean) => void;
+  setSyncOpen: (v: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -52,6 +58,9 @@ export const useUIStore = create<UIState>((set) => ({
   showTierCounts: false,
   searchQuery: '',
   selectedCharacterId: null,
+  helpOpen: false,
+  snapshotsOpen: false,
+  syncOpen: false,
   navigateHome: () => set({ page: 'home', activeTierListId: null, selectedCharacterId: null }),
   openTierList: (id) => set({ page: 'editor', activeTierListId: id, selectedCharacterId: null }),
   setActiveView: (view) => set({ activeView: view }),
@@ -64,4 +73,7 @@ export const useUIStore = create<UIState>((set) => ({
   setShowTierCounts: (v) => set({ showTierCounts: v }),
   setSearchQuery: (q) => set({ searchQuery: q }),
   selectCharacter: (id) => set({ selectedCharacterId: id }),
+  setHelpOpen: (v) => set({ helpOpen: v }),
+  setSnapshotsOpen: (v) => set({ snapshotsOpen: v }),
+  setSyncOpen: (v) => set({ syncOpen: v }),
 }));

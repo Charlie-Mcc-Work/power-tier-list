@@ -1,11 +1,10 @@
-const CACHE_NAME = 'power-tier-list-v1';
+const CACHE_NAME = 'power-tier-list-v2';
+const MAX_CACHE_ENTRIES = 80;
 
-// Install: skip waiting (assets are cached on first fetch via the fetch handler)
 self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
-// Activate: clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -17,33 +16,56 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: network-first for HTML/JS/CSS, cache-first for assets
+function shouldCache(request) {
+  const url = new URL(request.url);
+  if (request.method !== 'GET') return false;
+  if (url.origin !== self.location.origin) return false;
+  // Never cache API/sync endpoints or dev HMR URLs.
+  if (url.pathname.startsWith('/api/')) return false;
+  if (url.pathname.startsWith('/@')) return false;
+  if (url.pathname.startsWith('/node_modules/')) return false;
+  if (url.searchParams.has('t')) return false;
+  if (url.searchParams.has('import')) return false;
+  if (url.searchParams.has('v')) return false;
+  return true;
+}
+
+async function trimCache(cache) {
+  const keys = await cache.keys();
+  if (keys.length <= MAX_CACHE_ENTRIES) return;
+  const overflow = keys.length - MAX_CACHE_ENTRIES;
+  for (let i = 0; i < overflow; i++) {
+    await cache.delete(keys[i]);
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-
-  // Skip non-GET and chrome-extension requests
-  if (request.method !== 'GET' || !request.url.startsWith('http')) return;
+  if (!shouldCache(request)) return;
 
   event.respondWith(
     fetch(request)
       .then((response) => {
-        // Cache successful responses
-        if (response.ok) {
+        if (response.ok && response.type === 'basic') {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(request, clone).then(() => trimCache(cache));
+          });
         }
         return response;
       })
-      .catch(() => {
-        // Offline: serve from cache
-        return caches.match(request).then((cached) => {
+      .catch(() =>
+        caches.match(request).then((cached) => {
           if (cached) return cached;
-          // Fallback for navigation requests
           if (request.mode === 'navigate') {
-            return caches.match('/power-tier-list/index.html') || caches.match('/index.html');
+            return (
+              caches.match('/power-tier-list/index.html') ||
+              caches.match('/index.html') ||
+              new Response('Offline', { status: 503 })
+            );
           }
           return new Response('Offline', { status: 503 });
-        });
-      })
+        })
+      )
   );
 });

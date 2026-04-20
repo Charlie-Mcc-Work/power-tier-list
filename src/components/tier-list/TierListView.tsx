@@ -52,7 +52,9 @@ export function TierListView() {
     }),
   );
 
-  const dbAssignments = tierList?.tiers ?? [];
+  // Memoize so `?? []` doesn't return a fresh empty array each render
+  // (which would destabilize any useEffect/useMemo that depends on it).
+  const dbAssignments = useMemo(() => tierList?.tiers ?? [], [tierList?.tiers]);
   const assignments = dragPreview ?? dbAssignments;
 
   // Track which tier the pointer is physically over during drag (for highlighting)

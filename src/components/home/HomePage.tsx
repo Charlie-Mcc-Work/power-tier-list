@@ -1,28 +1,25 @@
 import { useState } from 'react';
 import { useUIStore } from '../../stores/ui-store';
 import { useAllTierLists, createTierList, deleteTierList, updateTierListName } from '../../hooks/use-tier-list';
-import { setActiveTierListId } from '../../hooks/use-tier-list';
-import { openSnapshotManager } from '../layout/SnapshotManager';
-import { openHelpPanel } from '../layout/HelpPanel';
-import { openSyncPanel } from '../layout/SyncPanel';
 import type { TierList, TierDefinition } from '../../types';
 import { DEFAULT_TIER_DEFS } from '../../types';
 
 export function HomePage() {
   const tierLists = useAllTierLists();
   const openTierList = useUIStore((s) => s.openTierList);
+  const setHelpOpen = useUIStore((s) => s.setHelpOpen);
+  const setSnapshotsOpen = useUIStore((s) => s.setSnapshotsOpen);
+  const setSyncOpen = useUIStore((s) => s.setSyncOpen);
   const [newName, setNewName] = useState('');
 
   async function handleCreate() {
     const name = newName.trim() || 'Untitled Tier List';
     const id = await createTierList(name);
     setNewName('');
-    setActiveTierListId(id);
     openTierList(id);
   }
 
   function handleOpen(id: string) {
-    setActiveTierListId(id);
     openTierList(id);
   }
 
@@ -44,21 +41,21 @@ export function HomePage() {
           </div>
           <div className="flex gap-2">
             <button
-              onClick={openSnapshotManager}
+              onClick={() => setSnapshotsOpen(true)}
               className="px-4 py-2 text-sm text-gray-300 hover:text-white bg-[#1e1e1e] hover:bg-[#2a2a2a]
                          border border-gray-700 rounded-lg transition-colors"
             >
               Backups
             </button>
             <button
-              onClick={openSyncPanel}
+              onClick={() => setSyncOpen(true)}
               className="px-4 py-2 text-sm text-gray-300 hover:text-white bg-[#1e1e1e] hover:bg-[#2a2a2a]
                          border border-gray-700 rounded-lg transition-colors"
             >
               Sync
             </button>
             <button
-              onClick={openHelpPanel}
+              onClick={() => setHelpOpen(true)}
               className="w-9 h-9 flex items-center justify-center text-sm text-gray-400 hover:text-white
                          bg-[#1e1e1e] hover:bg-[#2a2a2a] border border-gray-700 rounded-lg transition-colors"
               title="How it works"

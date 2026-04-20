@@ -15,11 +15,36 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js');
-        });
-      }
+      // Register the service worker ONLY on production builds served over HTTPS
+      // (or localhost production previews). In Vite dev, every HMR module reload
+      // is a new URL the SW would cache forever — that's a memory leak.
+      (function () {
+        if (!('serviceWorker' in navigator)) return;
+        var host = location.hostname;
+        var isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+        // Vite dev server uses ports 5173/5174/5175/... Production preview uses 4173.
+        // Any production deploy is not on one of those dev ports.
+        var port = location.port;
+        var isDevPort = port && /^51[0-9]{2}$/.test(port);
+        var isProd = !isDevPort && (location.protocol === 'https:' || isLocalhost);
+
+        if (isProd) {
+          window.addEventListener('load', function () {
+            navigator.serviceWorker.register('/sw.js').catch(function () {});
+          });
+        } else {
+          // Dev mode: actively clean up any SW + caches left behind by prior prod visits.
+          // Without this, a stale SW keeps caching HMR modules forever in the background.
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            regs.forEach(function (r) { r.unregister(); });
+          }).catch(function () {});
+          if (window.caches && caches.keys) {
+            caches.keys().then(function (keys) {
+              keys.forEach(function (k) { caches.delete(k); });
+            }).catch(function () {});
+          }
+        }
+      })();
     </script>
   </body>
 </html>

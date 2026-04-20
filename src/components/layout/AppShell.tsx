@@ -5,7 +5,7 @@ import { TierListView } from '../tier-list/TierListView';
 import { RelationshipsView } from '../relationships/RelationshipsView';
 import { EvidenceView } from '../evidence/EvidenceView';
 import { CharacterDetail } from '../character/CharacterDetail';
-import { setActiveTierListId, ensureTierList } from '../../hooks/use-tier-list';
+import { ensureTierList } from '../../hooks/use-tier-list';
 
 function RightPaneTabs() {
   const { rightPaneTab, setRightPaneTab } = useUIStore();
@@ -140,7 +140,7 @@ export function AppShell() {
 
   useEffect(() => {
     if (activeTierListId) {
-      setActiveTierListId(activeTierListId);
+      // getActiveTierListId() now reads from the Zustand store, so no explicit sync needed.
       ensureTierList();
     }
   }, [activeTierListId]);

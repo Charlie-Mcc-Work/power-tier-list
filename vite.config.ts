@@ -5,4 +5,8 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig(({ mode }) => ({
   base: mode === 'production' ? '/power-tier-list/' : '/',
   plugins: [react(), tailwindcss()],
+  server: {
+    port: 5175,
+    strictPort: true,
+  },
 }))

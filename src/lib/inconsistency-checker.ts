@@ -18,8 +18,13 @@ export function findInconsistencies(
 
     if (!supAssign || !infAssign) continue;
 
-    const supTierIdx = tierIndex.get(supAssign.tier) ?? 0;
-    const infTierIdx = tierIndex.get(infAssign.tier) ?? 0;
+    // If either character is parked in a tier that no longer exists (renamed
+    // or deleted), skip — silently defaulting to idx 0 would produce spurious
+    // "ranked below" warnings.
+    const supTierIdx = tierIndex.get(supAssign.tier);
+    const infTierIdx = tierIndex.get(infAssign.tier);
+    if (supTierIdx == null || infTierIdx == null) continue;
+
     const minGap = (rel.strict ?? false) ? 1 : 0;
     const op = rel.strict ? '>' : '>=';
 
@@ -39,18 +44,17 @@ export function findInconsistencies(
 
   // Only flag cycles that contain at least one strict (>) edge.
   // Non-strict-only cycles (all >=) are satisfiable — they mean "same tier."
+  // NOTE: detectCycles returns SCC members in reverse-DFS order, NOT in cycle
+  // traversal order. So we cannot infer edges by walking adjacent indices —
+  // we must scan all relationships whose endpoints both lie in the SCC.
   const graph = buildGraph(relationships);
   const cycles = detectCycles(graph);
-  const edgeStrict = new Map<string, boolean>();
-  for (const rel of relationships) {
-    edgeStrict.set(`${rel.superiorId}->${rel.inferiorId}`, rel.strict ?? false);
-  }
 
   for (const cycle of cycles) {
-    const hasStrictEdge = cycle.some((id, i) => {
-      const next = cycle[(i + 1) % cycle.length];
-      return edgeStrict.get(`${id}->${next}`) === true;
-    });
+    const cycleSet = new Set(cycle);
+    const hasStrictEdge = relationships.some(
+      (r) => cycleSet.has(r.superiorId) && cycleSet.has(r.inferiorId) && (r.strict ?? false),
+    );
 
     if (hasStrictEdge) {
       const names = cycle.map((id) => charMap.get(id)?.name ?? 'Unknown');
