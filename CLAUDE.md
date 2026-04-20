@@ -32,7 +32,7 @@ If you believe a change is needed (e.g., a port conflict, a failing build), **pr
 
 ```bash
 npm install        # install dependencies
-npm run dev        # start dev server (Vite, http://localhost:5173)
+npm run dev        # start dev server (Vite, http://localhost:5175)
 npm run build      # type-check (tsc) + production build
 npm run lint       # ESLint
 ```
