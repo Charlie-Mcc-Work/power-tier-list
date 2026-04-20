@@ -16,6 +16,18 @@
 
 The help panel is the user's reference for how the app works. If it's wrong, the user is misled. **Do not skip this check.**
 
+## Do Not Modify Build/Server Config Without Being Asked
+
+**Never modify the following files or settings unless the user explicitly asks:**
+
+- `vite.config.ts` (dev server port, base path, plugins, build options)
+- `tsconfig*.json`
+- `package.json` scripts, `engines`, or dependency versions
+- `.github/workflows/*` or any CI config
+- ESLint, Prettier, Tailwind, or other tool configs
+
+If you believe a change is needed (e.g., a port conflict, a failing build), **propose it and wait for approval** before editing. If you do make such a change because the user approved it, call it out explicitly in the commit message — do not bury it in an unrelated batch.
+
 ## Build & Run
 
 ```bash
