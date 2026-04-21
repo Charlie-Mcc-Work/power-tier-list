@@ -2,6 +2,24 @@
 
 A local-first web app for building logically consistent strength tier lists of fictional characters. Designed for One Piece power scaling with 400+ characters, but works for any fictional universe.
 
+## Run
+
+From the repo root (after `npm install` and `npm install --prefix server`):
+
+**Start** — UI on http://localhost:5175 plus the sync server on :3847, both in the background:
+
+```bash
+nohup npm run dev > /tmp/tier-dev.log 2>&1 & nohup npm start --prefix server > /tmp/tier-sync.log 2>&1 &
+```
+
+**Stop:**
+
+```bash
+pkill -f 'vite|server/index.js'
+```
+
+Logs are written to `/tmp/tier-dev.log` and `/tmp/tier-sync.log`. If you don't use share-as-link, drop the second half of the start command and stop with `pkill -f vite`.
+
 ## What Makes This Different
 
 This isn't a drag-and-drop tier maker. It's a **constraint-based reasoning tool** where your stated relationships (e.g., "Luffy > Kaido") are **enforced rules** — the tier list physically cannot contradict your data.
