@@ -23,3 +23,22 @@ body {
   display: flex;
   flex-direction: column;
 }
+
+/* iOS Safari auto-zooms into inputs < 16px. Force 16px on mobile without
+   touching every input's Tailwind class list. Desktop keeps the designed size. */
+@media (max-width: 640px) {
+  input[type="text"],
+  input[type="search"],
+  input[type="password"],
+  input[type="email"],
+  input[type="url"],
+  input[type="number"],
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Make all buttons immune to iOS 300ms double-tap-to-zoom. */
+button {
+  touch-action: manipulation;
+}

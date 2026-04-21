@@ -1,0 +1,20 @@
+services:
+  tierlist:
+    build: .
+    container_name: power-tier-list
+    ports:
+      # Publish on PORT (default 3847). Access on your LAN / Tailscale IP at
+      # http://<host>:${PORT:-3847}/
+      - "${PORT:-3847}:3001"
+    environment:
+      - PORT=3001
+      # Set SYNC_TOKEN to enable the optional sync/share API. Leave unset for
+      # a purely local IndexedDB deploy (front-end still works; the /api
+      # endpoints return 503 with a clear message).
+      - SYNC_TOKEN=${SYNC_TOKEN:-}
+    volumes:
+      - tierlist-data:/data
+    restart: unless-stopped
+
+volumes:
+  tierlist-data:

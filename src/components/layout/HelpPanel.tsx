@@ -202,7 +202,12 @@ export function HelpPanel() {
                 with fresh ids, leaving everything you have alone. A backup snapshot is taken before either
                 so the operation is reversible from the Backups panel.
               </li>
-              <li><span className="text-gray-300">Mobile</span> — Touch drag with long-press. Layout auto-switches to tabs on small screens.</li>
+              <li>
+                <span className="text-gray-300">Mobile</span> — Touch drag with long-press (hold a card for ~200ms, then drag).
+                Layout auto-switches to the single-pane tabs view on narrow screens. Tap the
+                <span className="text-gray-300"> ⋮ </span> overflow button in the top bar to reach
+                Present, Sync, Backups, Export, Import, Help, plus card-size and image-display controls.
+              </li>
               <li><span className="text-gray-300">Undo / Redo</span> — Ctrl+Z to undo, Ctrl+Shift+Z or Ctrl+Y to redo. Tracks drag moves and relationship placements (last 50 states).</li>
               <li><span className="text-gray-300">Save Image</span> — In presentation mode, click "Save Image" to download the tier list as a PNG.</li>
               <li>

@@ -29,3 +29,6 @@ dist-ssr
 
 # Claude Code
 .claude/
+
+# Sync server runtime data (created by local dev runs)
+server/data/

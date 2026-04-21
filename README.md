@@ -4,21 +4,42 @@ A local-first web app for building logically consistent strength tier lists of f
 
 ## Run
 
-From the repo root (after `npm install` and `npm install --prefix server`):
+### Development
 
-**Start** — UI on http://localhost:5175 plus the sync server on :3847, both in the background:
-
-```bash
-nohup npm run dev > /tmp/tier-dev.log 2>&1 & nohup npm start --prefix server > /tmp/tier-sync.log 2>&1 &
-```
-
-**Stop:**
+From the repo root (after `npm install`):
 
 ```bash
-pkill -f 'vite|server/index.js'
+npm run dev        # UI at http://localhost:5175
 ```
 
-Logs are written to `/tmp/tier-dev.log` and `/tmp/tier-sync.log`. If you don't use share-as-link, drop the second half of the start command and stop with `pkill -f vite`.
+Optional sync server for push/pull/share (after `npm install --prefix server`):
+
+```bash
+SYNC_TOKEN=your-secret npm start --prefix server
+```
+
+### Self-host (Docker, single container)
+
+One container serves both the frontend and the sync API on a single port —
+ideal for a home server you reach over a LAN IP or Tailscale.
+
+```bash
+# 1) Generate a token for sync (skip if you don't want sync/share features)
+export SYNC_TOKEN=$(openssl rand -hex 24)
+
+# 2) Build and start
+docker compose up -d --build
+```
+
+The app is now at `http://<host>:3847/` (change `PORT` in the env to pick a
+different port). Frontend, API, and share links all live on the same origin.
+
+Mobile usage: point Safari / Chrome on your phone at the same URL — the layout
+switches to single-pane mode automatically, drag-drop works with a ~200ms
+long-press. First time on a new device: tap **⋮ → Import** and pick the JSON
+you exported from your other browser to move your data over.
+
+**Stop:** `docker compose down` (add `-v` to wipe the sync server's volume).
 
 ## What Makes This Different
 
@@ -85,7 +106,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173 in your browser.
+Open http://localhost:5175 in your browser.
 
 ### Workflow for a Large Tier List
 

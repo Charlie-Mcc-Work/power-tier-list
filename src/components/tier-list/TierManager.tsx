@@ -76,22 +76,24 @@ export function TierManager({ tierDefs }: Props) {
         <div className="mt-2 p-3 rounded-lg border border-gray-700 bg-[#1a1a1a] space-y-2">
           {/* Current tiers */}
           {tierDefs.map((td, idx) => (
-            <div key={td.id} className="flex items-center gap-2 h-8">
+            <div key={td.id} className="flex items-center gap-2 min-h-11 sm:min-h-8">
               {/* Reorder buttons */}
-              <div className="flex flex-col gap-0.5">
+              <div className="flex flex-col">
                 <button
                   onClick={() => handleMoveUp(idx)}
                   disabled={idx === 0}
-                  className="text-[10px] text-gray-500 hover:text-gray-300 disabled:opacity-30 leading-none"
+                  className="w-7 h-6 flex items-center justify-center text-xs text-gray-500 hover:text-gray-300 disabled:opacity-30"
                   title="Move up"
+                  aria-label="Move up"
                 >
                   ▲
                 </button>
                 <button
                   onClick={() => handleMoveDown(idx)}
                   disabled={idx === tierDefs.length - 1}
-                  className="text-[10px] text-gray-500 hover:text-gray-300 disabled:opacity-30 leading-none"
+                  className="w-7 h-6 flex items-center justify-center text-xs text-gray-500 hover:text-gray-300 disabled:opacity-30"
                   title="Move down"
+                  aria-label="Move down"
                 >
                   ▼
                 </button>
@@ -134,8 +136,9 @@ export function TierManager({ tierDefs }: Props) {
               <button
                 onClick={() => handleRemove(td.id)}
                 disabled={tierDefs.length <= 1}
-                className="text-[10px] text-gray-500 hover:text-red-400 disabled:opacity-30 px-1"
+                className="w-9 h-9 flex items-center justify-center text-sm text-gray-500 hover:text-red-400 disabled:opacity-30"
                 title="Remove tier"
+                aria-label="Remove tier"
               >
                 ✕
               </button>

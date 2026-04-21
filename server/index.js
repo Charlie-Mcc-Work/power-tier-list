@@ -3,14 +3,23 @@ import cors from 'cors';
 import Database from 'better-sqlite3';
 import crypto from 'crypto';
 import { existsSync, mkdirSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PORT || 3001;
+const HOST = process.env.HOST || '0.0.0.0';
 const SYNC_TOKEN = process.env.SYNC_TOKEN;
 const DATA_DIR = process.env.DATA_DIR || './data';
+const PUBLIC_DIR = process.env.PUBLIC_DIR || join(__dirname, 'public');
+const SYNC_ENABLED = Boolean(SYNC_TOKEN);
 
-if (!SYNC_TOKEN) {
-  console.error('ERROR: SYNC_TOKEN environment variable is required');
-  process.exit(1);
+if (!SYNC_ENABLED) {
+  console.warn(
+    'WARN: SYNC_TOKEN is not set. Sync/share endpoints will return 503. ' +
+    'The app still works offline via IndexedDB. Set SYNC_TOKEN to enable sync.',
+  );
 }
 
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
@@ -39,8 +48,12 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '200mb' }));
 
-// Auth middleware for sync endpoints
+// Auth middleware for sync endpoints. If sync is disabled (no SYNC_TOKEN set)
+// short-circuit with a clear error so the frontend can guide the user.
 function requireAuth(req, res, next) {
+  if (!SYNC_ENABLED) {
+    return res.status(503).json({ error: 'Sync is not configured on this server (SYNC_TOKEN unset).' });
+  }
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (token !== SYNC_TOKEN) {
     return res.status(401).json({ error: 'Invalid token' });
@@ -113,9 +126,32 @@ app.get('/api/shared/:code', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, lists: db.prepare('SELECT COUNT(*) as count FROM tier_lists').get() });
+  res.json({
+    ok: true,
+    syncEnabled: SYNC_ENABLED,
+    lists: SYNC_ENABLED ? db.prepare('SELECT COUNT(*) as count FROM tier_lists').get() : null,
+  });
 });
 
-app.listen(PORT, () => {
-  console.log(`Tier List sync server running on port ${PORT}`);
+// ── Serve the built frontend (when present). Enables a single-container deploy:
+// `/api/*` hits the API above, everything else falls through to the SPA. ──
+if (existsSync(PUBLIC_DIR)) {
+  app.use(express.static(PUBLIC_DIR, { maxAge: '1d', index: 'index.html' }));
+
+  // SPA fallback: any non-API GET that isn't a real file should return index.html
+  // so client-side routing works. Express 5 uses path-to-regexp v6, which doesn't
+  // accept bare `*` — use a regex instead.
+  app.get(/^(?!\/api\/).*/, (req, res, next) => {
+    if (req.method !== 'GET') return next();
+    const indexPath = join(PUBLIC_DIR, 'index.html');
+    if (existsSync(indexPath)) return res.sendFile(indexPath);
+    next();
+  });
+  console.log(`Serving frontend from ${PUBLIC_DIR}`);
+} else {
+  console.log(`No frontend found at ${PUBLIC_DIR} — running as API-only server.`);
+}
+
+app.listen(PORT, HOST, () => {
+  console.log(`Tier List server running on ${HOST}:${PORT} (sync ${SYNC_ENABLED ? 'enabled' : 'disabled'})`);
 });

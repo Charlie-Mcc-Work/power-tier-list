@@ -45,12 +45,23 @@ export function CharacterDetail({ characterId, onClose }: Props) {
   }
 
   return (
-    <div className="w-80 bg-[#1a1a1a] border-l border-gray-700 overflow-y-auto flex flex-col">
+    <>
+      {/* Mobile backdrop — tap to dismiss */}
+      <div
+        onClick={onClose}
+        className="fixed inset-0 z-40 bg-black/50 md:hidden"
+        aria-hidden="true"
+      />
+      <div
+        className="fixed inset-y-0 right-0 z-50 w-full max-w-sm bg-[#1a1a1a] border-l border-gray-700 overflow-y-auto flex flex-col
+                   md:static md:z-auto md:w-80 md:max-w-none"
+      >
       <div className="flex items-center justify-between p-4 border-b border-gray-700">
         <h2 className="text-sm font-medium text-white">Character Details</h2>
         <button
           onClick={onClose}
-          className="text-gray-400 hover:text-white transition-colors"
+          className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-white transition-colors text-lg"
+          aria-label="Close"
         >
           x
         </button>
@@ -83,7 +94,7 @@ export function CharacterDetail({ characterId, onClose }: Props) {
                 onChange={(e) => setEditName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && saveName()}
                 autoFocus
-                className="bg-[#141414] border border-gray-600 rounded px-2 py-1 text-sm text-white text-center focus:border-amber-400 focus:outline-none"
+                className="bg-[#141414] border border-gray-600 rounded px-2 py-1 text-base sm:text-sm text-white text-center focus:border-amber-400 focus:outline-none"
               />
               <button
                 onClick={saveName}
@@ -162,6 +173,7 @@ export function CharacterDetail({ characterId, onClose }: Props) {
           Delete Character
         </button>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

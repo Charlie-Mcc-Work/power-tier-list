@@ -41,6 +41,17 @@ export function NavBar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Close the mobile menu when the viewport grows past sm.
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 640px)');
+    function handle(e: MediaQueryListEvent | MediaQueryList) {
+      if (e.matches) setMobileMenuOpen(false);
+    }
+    mq.addEventListener('change', handle);
+    return () => mq.removeEventListener('change', handle);
+  }, []);
 
   // Auto-clear status after a short while.
   useEffect(() => {
@@ -142,23 +153,24 @@ export function NavBar() {
   }
 
   return (
-    <nav className="flex items-center gap-1 bg-[#1a1a1a] border-b border-gray-700 px-3 py-1 flex-wrap sm:flex-nowrap sm:py-0">
+    <nav className="flex items-center gap-1 bg-[#1a1a1a] border-b border-gray-700 px-2 sm:px-3 py-1 flex-wrap sm:flex-nowrap sm:py-0">
       <button
         onClick={navigateHome}
-        className="text-gray-400 hover:text-white transition-colors mr-2 py-3 text-sm"
+        className="text-gray-400 hover:text-white transition-colors mr-1 sm:mr-2 w-9 h-9 sm:w-auto sm:h-auto sm:py-3 flex items-center justify-center text-base sm:text-sm"
         title="Back to all tier lists"
+        aria-label="Back"
       >
         &larr;
       </button>
       <h1
         onClick={navigateHome}
-        className="text-lg font-bold text-white mr-4 py-3 cursor-pointer hover:text-amber-400 transition-colors"
+        className="text-base sm:text-lg font-bold text-white mr-2 sm:mr-4 sm:py-3 cursor-pointer hover:text-amber-400 transition-colors truncate"
       >
         Power Tier List
       </h1>
 
-      {/* Layout switcher */}
-      <div className="flex items-center border border-gray-600 rounded overflow-hidden mr-3">
+      {/* Layout switcher — hidden on mobile (auto-switches to tabs below 768px) */}
+      <div className="hidden md:flex items-center border border-gray-600 rounded overflow-hidden mr-3">
         {layouts.map((l) => (
           <button
             key={l.mode}
@@ -181,7 +193,7 @@ export function NavBar() {
           <button
             key={tab.view}
             onClick={() => setActiveView(tab.view)}
-            className={`px-4 py-3 text-sm font-medium transition-colors relative ${
+            className={`px-3 sm:px-4 py-3 text-sm font-medium transition-colors relative ${
               activeView === tab.view
                 ? 'text-white'
                 : 'text-gray-400 hover:text-gray-200'
@@ -194,7 +206,7 @@ export function NavBar() {
           </button>
         ))}
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-1 sm:gap-2">
         {/* Search */}
         <div className="relative">
           <input
@@ -202,25 +214,26 @@ export function NavBar() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search..."
-            className="w-32 bg-[#141414] border border-gray-700 rounded px-2 py-1 text-xs text-white
-                       placeholder-gray-600 focus:border-amber-400 focus:outline-none focus:w-48
+            className="w-28 sm:w-32 bg-[#141414] border border-gray-700 rounded px-2 py-2 sm:py-1 text-base sm:text-xs text-white
+                       placeholder-gray-600 focus:border-amber-400 focus:outline-none sm:focus:w-48
                        transition-all"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
               className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-xs"
+              aria-label="Clear search"
             >
               x
             </button>
           )}
         </div>
 
-        {/* Tier count toggle */}
+        {/* Desktop-only display toggles */}
         <button
           onClick={() => setShowTierCounts(!showTierCounts)}
           title={showTierCounts ? 'Hide tier counts' : 'Show tier counts'}
-          className={`px-2 py-1 text-[10px] rounded border transition-colors ${
+          className={`hidden sm:inline-flex px-2 py-1 text-[10px] rounded border transition-colors ${
             showTierCounts
               ? 'bg-gray-600 text-white border-gray-500'
               : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
@@ -229,8 +242,7 @@ export function NavBar() {
           #
         </button>
 
-        {/* Card size */}
-        <div className="flex items-center border border-gray-600 rounded overflow-hidden">
+        <div className="hidden sm:flex items-center border border-gray-600 rounded overflow-hidden">
           {cardSizeOptions.map((s) => (
             <button
               key={s}
@@ -247,8 +259,7 @@ export function NavBar() {
           ))}
         </div>
 
-        {/* Image display toggle */}
-        <div className="flex items-center border border-gray-600 rounded overflow-hidden">
+        <div className="hidden sm:flex items-center border border-gray-600 rounded overflow-hidden">
           {imageDisplayOptions.map((opt) => (
             <button
               key={opt.mode}
@@ -265,19 +276,18 @@ export function NavBar() {
           ))}
         </div>
 
-        {/* Sync */}
+        {/* Desktop: primary actions visible. Mobile: collapsed into a menu. */}
         <button
           onClick={() => setSyncOpen(true)}
-          className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
+          className="hidden sm:inline-flex px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
                      rounded transition-colors"
         >
           Sync
         </button>
 
-        {/* Present button */}
         <button
           onClick={() => setPresenting(true)}
-          className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-amber-700 hover:bg-amber-600
+          className="hidden sm:inline-flex px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-amber-700 hover:bg-amber-600
                      rounded transition-colors"
           title="Full-screen presentation view"
         >
@@ -286,7 +296,7 @@ export function NavBar() {
 
         <button
           onClick={() => setSnapshotsOpen(true)}
-          className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
+          className="hidden sm:inline-flex px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
                      rounded transition-colors"
         >
           Backups
@@ -294,7 +304,7 @@ export function NavBar() {
         <button
           onClick={handleExport}
           disabled={busy}
-          className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
+          className="hidden sm:inline-flex px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
                      rounded transition-colors disabled:opacity-50"
         >
           {busy ? '…' : 'Export'}
@@ -302,19 +312,30 @@ export function NavBar() {
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={busy}
-          className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
+          className="hidden sm:inline-flex px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
                      rounded transition-colors disabled:opacity-50"
         >
           {busy ? '…' : 'Import'}
         </button>
         <button
           onClick={() => setHelpOpen(true)}
-          className="w-7 h-7 flex items-center justify-center text-xs text-gray-400 hover:text-white
+          className="hidden sm:flex w-7 h-7 items-center justify-center text-xs text-gray-400 hover:text-white
                      bg-gray-700 hover:bg-gray-600 rounded-full transition-colors"
           title="How it works"
         >
           ?
         </button>
+
+        {/* Mobile overflow menu */}
+        <button
+          onClick={() => setMobileMenuOpen((v) => !v)}
+          className="sm:hidden w-10 h-10 flex items-center justify-center text-xl text-gray-300 hover:text-white bg-gray-700 rounded transition-colors"
+          aria-label="More actions"
+          aria-expanded={mobileMenuOpen}
+        >
+          &#8942;
+        </button>
+
         <input
           ref={fileInputRef}
           type="file"
@@ -323,6 +344,76 @@ export function NavBar() {
           className="hidden"
         />
       </div>
+
+      {/* Mobile menu drawer */}
+      {mobileMenuOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-[150] bg-black/50 sm:hidden"
+            onClick={() => setMobileMenuOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="sm:hidden fixed top-12 right-2 left-2 z-[160] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <MenuAction label="Present" onClick={() => { setPresenting(true); setMobileMenuOpen(false); }} accent />
+              <MenuAction label="Sync" onClick={() => { setSyncOpen(true); setMobileMenuOpen(false); }} />
+              <MenuAction label="Backups" onClick={() => { setSnapshotsOpen(true); setMobileMenuOpen(false); }} />
+              <MenuAction label="Help" onClick={() => { setHelpOpen(true); setMobileMenuOpen(false); }} />
+              <MenuAction label={busy ? '…' : 'Export'} disabled={busy} onClick={() => { handleExport(); setMobileMenuOpen(false); }} />
+              <MenuAction label={busy ? '…' : 'Import'} disabled={busy} onClick={() => { fileInputRef.current?.click(); setMobileMenuOpen(false); }} />
+            </div>
+
+            <div className="pt-2 border-t border-gray-700 space-y-2">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">Card Size</div>
+                <div className="flex gap-1">
+                  {cardSizeOptions.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setCardSize(s)}
+                      className={`flex-1 py-2 rounded text-xs transition-colors ${
+                        cardSize === s
+                          ? 'bg-amber-600 text-white'
+                          : 'bg-gray-800 text-gray-400'
+                      }`}
+                    >
+                      {CARD_SIZES[s].name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">Image Display</div>
+                <div className="flex gap-1">
+                  {imageDisplayOptions.map((opt) => (
+                    <button
+                      key={opt.mode}
+                      onClick={() => setImageDisplay(opt.mode)}
+                      className={`flex-1 py-2 rounded text-xs transition-colors ${
+                        imageDisplay === opt.mode
+                          ? 'bg-amber-600 text-white'
+                          : 'bg-gray-800 text-gray-400'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowTierCounts(!showTierCounts)}
+                className={`w-full py-2 rounded text-xs transition-colors ${
+                  showTierCounts ? 'bg-amber-600 text-white' : 'bg-gray-800 text-gray-400'
+                }`}
+              >
+                {showTierCounts ? 'Hide Tier Counts' : 'Show Tier Counts'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {status && (
         <div
@@ -345,5 +436,31 @@ export function NavBar() {
         </div>
       )}
     </nav>
+  );
+}
+
+function MenuAction({
+  label,
+  onClick,
+  disabled,
+  accent,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  accent?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`py-3 rounded text-sm font-medium transition-colors disabled:opacity-50 ${
+        accent
+          ? 'bg-amber-700 hover:bg-amber-600 text-white'
+          : 'bg-gray-700 hover:bg-gray-600 text-gray-200'
+      }`}
+    >
+      {label}
+    </button>
   );
 }
