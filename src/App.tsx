@@ -7,6 +7,7 @@ import { HelpPanel } from './components/layout/HelpPanel';
 import { SyncPanel } from './components/layout/SyncPanel';
 import { useUIStore } from './stores/ui-store';
 import { requestPersistentStorage } from './db/auto-backup';
+import { initAutoSync } from './lib/sync';
 
 function App() {
   const page = useUIStore((s) => s.page);
@@ -19,6 +20,10 @@ function App() {
     // Ask the browser not to evict our IndexedDB if disk pressure gets high.
     // This is a one-shot permission request; no timers, no background work.
     requestPersistentStorage();
+    // Register Dexie hooks + focus listeners so edits auto-push to the sync
+    // server and the other devices auto-pull on focus. No-op if sync isn't
+    // configured; recovers automatically once the user connects in SyncPanel.
+    initAutoSync();
   }, []);
 
   return (

@@ -225,7 +225,17 @@ export function HelpPanel() {
                 Shortcuts in fullscreen: <Key>F</Key>/<Key>0</Key> to fit, <Key>+</Key>/<Key>-</Key> to zoom,
                 arrow keys to pan, <Key>Esc</Key> to exit.
               </li>
-              <li><span className="text-gray-300">Sync</span> — Connect to a self-hosted sync server to push/pull tier lists between devices. Set up the server with Docker, enter the URL and token.</li>
+              <li>
+                <span className="text-gray-300">Sync</span> — Connect once to a self-hosted sync
+                server (Docker) and every device stays in step automatically: edits upload within
+                a couple of seconds, other devices pull when you open or refocus the app.
+                A dot next to the <span className="text-gray-300">Sync</span> button shows state —
+                green = up to date, amber = uploading, red = offline. The
+                <span className="text-gray-300"> Push Now</span> / <span className="text-gray-300">Pull Now</span>
+                buttons in the Sync panel force it immediately if you don't want to wait.
+                On a private network the server runs with no token required (Tailscale/LAN handles
+                access) — just Connect and it works.
+              </li>
               <li><span className="text-gray-300">Share</span> — Generate a read-only link for the current tier list (requires sync server).</li>
             </ul>
           </section>

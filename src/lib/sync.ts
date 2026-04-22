@@ -4,6 +4,24 @@ import { log } from './logger';
 const STORAGE_KEY_URL = 'ptl_sync_url';
 const STORAGE_KEY_TOKEN = 'ptl_sync_token';
 
+/** Observable sync status for the nav-bar indicator. */
+export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'offline' | 'disabled';
+let currentStatus: SyncStatus = 'disabled';
+const statusListeners = new Set<(s: SyncStatus) => void>();
+function setStatus(s: SyncStatus) {
+  if (s === currentStatus) return;
+  currentStatus = s;
+  statusListeners.forEach((l) => l(s));
+}
+export function getSyncStatus(): SyncStatus {
+  return currentStatus;
+}
+export function subscribeSyncStatus(listener: (s: SyncStatus) => void): () => void {
+  statusListeners.add(listener);
+  listener(currentStatus);
+  return () => statusListeners.delete(listener);
+}
+
 export function getSyncConfig(): { url: string; token: string } | null {
   const url = localStorage.getItem(STORAGE_KEY_URL);
   if (!url) return null;
@@ -58,9 +76,11 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   return res.json();
 }
 
-/** Push all local tier lists to the server */
-export async function syncPush(): Promise<{ pushed: number }> {
-  const tierLists = await localDb.tierLists.toArray();
+/** Push local tier lists to the server. When `listIds` is given, only those
+ *  are uploaded — enables auto-sync to upload only the list that changed. */
+export async function syncPush(listIds?: string[]): Promise<{ pushed: number }> {
+  const allLists = await localDb.tierLists.toArray();
+  const tierLists = listIds ? allLists.filter((tl) => listIds.includes(tl.id)) : allLists;
   let pushed = 0;
 
   for (const tl of tierLists) {
@@ -186,4 +206,136 @@ export async function checkConnection(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ── Auto-sync ──────────────────────────────────────────────────────────────
+// On app load: pull once, then hook every write to tier-list-scoped tables
+// and push the dirty lists after a short debounce. Pull again when the window
+// regains focus after being hidden for a while (covers "edited on another
+// device, switched back here").
+//
+// Last-writer-wins on conflicts — acceptable for single-user multi-device.
+
+const PUSH_DEBOUNCE_MS = 2000;
+const REFOCUS_PULL_THRESHOLD_MS = 5000;
+
+let initialized = false;
+let muted = false;
+let pushTimer: number | null = null;
+let dirtyIds = new Set<string>();
+let lastBlurAt = 0;
+
+function getListIdFrom(obj: unknown): string | undefined {
+  if (!obj || typeof obj !== 'object') return undefined;
+  const o = obj as Record<string, unknown>;
+  if (typeof o.tierListId === 'string') return o.tierListId;
+  // A tierLists row itself: the primary key IS the list id.
+  if (typeof o.id === 'string' && 'tierDefs' in o) return o.id as string;
+  return undefined;
+}
+
+function markDirty(listId?: string) {
+  if (muted) return;
+  if (!getSyncConfig()) return;
+  if (!listId) return;
+  dirtyIds.add(listId);
+  setStatus('syncing');
+  if (pushTimer) window.clearTimeout(pushTimer);
+  pushTimer = window.setTimeout(flushPush, PUSH_DEBOUNCE_MS);
+}
+
+async function flushPush() {
+  pushTimer = null;
+  if (!getSyncConfig()) return;
+  if (dirtyIds.size === 0) {
+    setStatus('synced');
+    return;
+  }
+  const ids = [...dirtyIds];
+  dirtyIds = new Set();
+  setStatus('syncing');
+  try {
+    await syncPush(ids);
+    setStatus(dirtyIds.size === 0 ? 'synced' : 'syncing');
+    log.info('sync', `auto-pushed ${ids.length} list(s)`);
+  } catch (err) {
+    // Restore dirtiness so the next edit (or manual retry) catches up.
+    ids.forEach((id) => dirtyIds.add(id));
+    setStatus('offline');
+    log.warn('sync', `auto-push failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function pullSilently() {
+  if (!getSyncConfig()) return;
+  setStatus('syncing');
+  muted = true;
+  try {
+    await syncPull();
+    setStatus(dirtyIds.size === 0 ? 'synced' : 'syncing');
+  } catch (err) {
+    setStatus('offline');
+    log.warn('sync', `auto-pull failed: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    muted = false;
+  }
+}
+
+/** Wire up Dexie table hooks and focus listeners. Safe to call many times. */
+export function initAutoSync() {
+  if (initialized) return;
+  initialized = true;
+
+  // Register creating / updating / deleting hooks on each tier-list-scoped
+  // table. Types differ per table so we can't loop — do it inline.
+  localDb.tierLists.hook('creating', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
+  localDb.tierLists.hook('updating', (_mods, _pk, obj) => { markDirty(getListIdFrom(obj)); });
+  localDb.tierLists.hook('deleting', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
+
+  localDb.characters.hook('creating', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
+  localDb.characters.hook('updating', (_mods, _pk, obj) => { markDirty(getListIdFrom(obj)); });
+  localDb.characters.hook('deleting', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
+
+  localDb.relationships.hook('creating', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
+  localDb.relationships.hook('updating', (_mods, _pk, obj) => { markDirty(getListIdFrom(obj)); });
+  localDb.relationships.hook('deleting', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
+
+  localDb.evidence.hook('creating', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
+  localDb.evidence.hook('updating', (_mods, _pk, obj) => { markDirty(getListIdFrom(obj)); });
+  localDb.evidence.hook('deleting', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
+
+  window.addEventListener('blur', () => { lastBlurAt = Date.now(); });
+  window.addEventListener('focus', () => {
+    if (Date.now() - lastBlurAt > REFOCUS_PULL_THRESHOLD_MS) {
+      pullSilently();
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - lastBlurAt > REFOCUS_PULL_THRESHOLD_MS) {
+      pullSilently();
+    }
+    if (document.visibilityState === 'hidden') {
+      lastBlurAt = Date.now();
+    }
+  });
+
+  // Initial pull on app start, then mark status idle/offline.
+  if (getSyncConfig()) {
+    setStatus('syncing');
+    pullSilently();
+  } else {
+    setStatus('disabled');
+  }
+}
+
+/** Called by SyncPanel after the user sets/clears sync config — just updates
+ *  the status indicator. SyncPanel triggers its own pull/push on connect. */
+export function refreshAutoSync() {
+  if (!getSyncConfig()) {
+    setStatus('disabled');
+    dirtyIds.clear();
+    if (pushTimer) { window.clearTimeout(pushTimer); pushTimer = null; }
+    return;
+  }
+  setStatus(dirtyIds.size === 0 ? 'synced' : 'syncing');
 }

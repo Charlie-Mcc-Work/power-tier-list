@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { getSyncConfig, setSyncConfig, clearSyncConfig, syncPush, syncPull, createShareLink, checkConnection, probeServer } from '../../lib/sync';
+import { getSyncConfig, setSyncConfig, clearSyncConfig, syncPush, syncPull, createShareLink, checkConnection, probeServer, refreshAutoSync } from '../../lib/sync';
+import { log } from '../../lib/logger';
 import { useUIStore } from '../../stores/ui-store';
 
 export function SyncPanel() {
@@ -35,10 +36,23 @@ export function SyncPanel() {
   async function handleSave() {
     setSyncConfig(url, token);
     setLoading(true);
-    const ok = await checkConnection();
-    setConnected(ok);
-    setStatus(ok ? 'Connected!' : 'Connection failed — check URL' + (requiresAuth ? ' and token' : ''));
-    setLoading(false);
+    try {
+      const ok = await checkConnection();
+      setConnected(ok);
+      if (!ok) {
+        setStatus('Connection failed — check URL' + (requiresAuth ? ' and token' : ''));
+        return;
+      }
+      // Two-way sync on connect: pull newer remote lists, then push local lists.
+      // Converges both sides without losing either side's edits.
+      setStatus('Syncing…');
+      await syncPull().catch((err) => log.warn('sync', `pull on connect failed: ${err}`));
+      await syncPush().catch((err) => log.warn('sync', `push on connect failed: ${err}`));
+      setStatus('Connected — auto-sync on. Edits upload automatically; other devices pull when focused.');
+      refreshAutoSync();
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleDisconnect() {
@@ -47,6 +61,7 @@ export function SyncPanel() {
     setToken('');
     setConnected(null);
     setStatus(null);
+    refreshAutoSync();
   }
 
   async function handlePush() {
@@ -167,6 +182,9 @@ export function SyncPanel() {
           {/* Sync actions */}
           {config && connected && (
             <div className="pt-2 border-t border-gray-700 space-y-2">
+              <p className="text-[11px] text-gray-500">
+                Auto-sync is on. Edits upload within a couple of seconds; other devices pull when you open or refocus the app. The buttons below force it immediately if you don't want to wait.
+              </p>
               <div className="flex gap-2">
                 <button
                   onClick={handlePush}
@@ -174,7 +192,7 @@ export function SyncPanel() {
                   className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded
                              transition-colors disabled:opacity-50"
                 >
-                  Push to Server
+                  Push Now
                 </button>
                 <button
                   onClick={handlePull}
@@ -182,7 +200,7 @@ export function SyncPanel() {
                   className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded
                              transition-colors disabled:opacity-50"
                 >
-                  Pull from Server
+                  Pull Now
                 </button>
               </div>
               <button

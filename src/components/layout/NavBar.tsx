@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { subscribeSyncStatus, type SyncStatus } from '../../lib/sync';
 import { useUIStore, CARD_SIZES } from '../../stores/ui-store';
 import type { ImageDisplayMode, CardSize } from '../../stores/ui-store';
 import {
@@ -42,6 +43,7 @@ export function NavBar() {
   const [status, setStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('disabled');
 
   // Close the mobile menu when the viewport grows past sm.
   useEffect(() => {
@@ -52,6 +54,8 @@ export function NavBar() {
     mq.addEventListener('change', handle);
     return () => mq.removeEventListener('change', handle);
   }, []);
+
+  useEffect(() => subscribeSyncStatus(setSyncStatus), []);
 
   // Auto-clear status after a short while.
   useEffect(() => {
@@ -279,9 +283,11 @@ export function NavBar() {
         {/* Desktop: primary actions visible. Mobile: collapsed into a menu. */}
         <button
           onClick={() => setSyncOpen(true)}
-          className="hidden sm:inline-flex px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
+          className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
                      rounded transition-colors"
+          title={syncStatusTitle(syncStatus)}
         >
+          <SyncDot status={syncStatus} />
           Sync
         </button>
 
@@ -356,7 +362,7 @@ export function NavBar() {
           <div className="sm:hidden fixed top-12 right-2 left-2 z-[160] bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-2xl p-3 space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <MenuAction label="Present" onClick={() => { setPresenting(true); setMobileMenuOpen(false); }} accent />
-              <MenuAction label="Sync" onClick={() => { setSyncOpen(true); setMobileMenuOpen(false); }} />
+              <MenuAction label={syncStatusLabel(syncStatus)} onClick={() => { setSyncOpen(true); setMobileMenuOpen(false); }} />
               <MenuAction label="Backups" onClick={() => { setSnapshotsOpen(true); setMobileMenuOpen(false); }} />
               <MenuAction label="Help" onClick={() => { setHelpOpen(true); setMobileMenuOpen(false); }} />
               <MenuAction label={busy ? '…' : 'Export'} disabled={busy} onClick={() => { handleExport(); setMobileMenuOpen(false); }} />
@@ -463,4 +469,32 @@ function MenuAction({
       {label}
     </button>
   );
+}
+
+function SyncDot({ status }: { status: SyncStatus }) {
+  const cls =
+    status === 'synced' ? 'bg-green-400'
+    : status === 'syncing' ? 'bg-amber-400 animate-pulse'
+    : status === 'offline' ? 'bg-red-400'
+    : 'bg-gray-500';
+  return <span className={`w-2 h-2 rounded-full ${cls}`} aria-hidden="true" />;
+}
+
+function syncStatusTitle(status: SyncStatus): string {
+  switch (status) {
+    case 'synced': return 'All edits synced to the server';
+    case 'syncing': return 'Uploading recent edits…';
+    case 'offline': return 'Sync server unreachable — local edits will upload when reconnected';
+    case 'disabled': return 'Sync not configured — click to set up';
+    default: return 'Sync';
+  }
+}
+
+function syncStatusLabel(status: SyncStatus): string {
+  switch (status) {
+    case 'synced': return 'Sync · up to date';
+    case 'syncing': return 'Sync · uploading…';
+    case 'offline': return 'Sync · offline';
+    default: return 'Sync';
+  }
 }
