@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
 import type { TierList, TierAssignment } from '../types';
 import { DEFAULT_TIER_DEFS } from '../types';
-import { autoPlaceAndEnforce } from '../lib/enforce-constraints';
+import { autoPlaceAndEnforce, compactUpward } from '../lib/enforce-constraints';
 import { undoManager } from '../lib/undo';
 import { useUIStore } from '../stores/ui-store';
 
@@ -173,6 +173,35 @@ export async function enforceAndAutoPlace(): Promise<void> {
       `[enforce] enforceAndAutoPlace took ${Math.round(totalMs)}ms (autoPlaceAndEnforce=${Math.round(enforceMs)}ms, ${relationships.length} rels, ${characters.length} chars)`,
     );
   }
+}
+
+/**
+ * Move every placed character up as far as their relationships allow.
+ * Unranked characters are untouched. Returns the number moved, or an
+ * error if any chain is longer than the tier list.
+ */
+export async function compactTierList(): Promise<
+  { ok: true; moved: number } | { ok: false; reason: string }
+> {
+  const id = getActiveTierListId();
+  const [relationships, tierList, characters] = await Promise.all([
+    db.relationships.where('tierListId').equals(id).toArray(),
+    ensureTierList(),
+    db.characters.where('tierListId').equals(id).toArray(),
+  ]);
+
+  const tierDefs = tierList.tierDefs ?? DEFAULT_TIER_DEFS;
+  const tierIds = tierDefs.map((t) => t.id);
+  const charNames = new Map(characters.map((c) => [c.id, c.name]));
+
+  const result = compactUpward(tierList.tiers, relationships, tierIds, charNames);
+  if (!result.ok) return { ok: false, reason: result.reason };
+
+  if (result.movedCount === 0) return { ok: true, moved: 0 };
+
+  undoManager.push(tierList.tiers, 'drag');
+  await updateTierAssignments(result.assignments);
+  return { ok: true, moved: result.movedCount };
 }
 
 // ── Tier definition management ──

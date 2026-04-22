@@ -3,6 +3,8 @@ import {
   enforceAfterMove,
   autoPlaceAndEnforce,
   enforceWithinTierOrder,
+  compactUpward,
+  maxChainLength,
 } from './enforce-constraints';
 import type { Relationship, TierAssignment } from '../types';
 
@@ -352,5 +354,130 @@ describe('enforceWithinTierOrder', () => {
     const rels = [rel('A', 'B', false), rel('B', 'A', false)];
     const result = enforceWithinTierOrder(initial, rels);
     expect(result.filter((a) => a.tier === 'B')).toHaveLength(2);
+  });
+});
+
+describe('compactUpward', () => {
+  it('moves a placed character with no relationships all the way to top', () => {
+    const initial = [at('A', 'D')];
+    const result = compactUpward(initial, [], TIERS);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(tierOf(result.assignments, 'A')).toBe('S');
+      expect(result.movedCount).toBe(1);
+    }
+  });
+
+  it('leaves the list untouched when nothing is placed', () => {
+    const result = compactUpward([], [rel('A', 'B')], TIERS);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.assignments).toEqual([]);
+      expect(result.movedCount).toBe(0);
+    }
+  });
+
+  it('ignores relationships where one endpoint is unranked', () => {
+    // A is placed at C; B (superior to A, so A should be below B) is unranked.
+    // User hasn't placed B yet → the B>A relationship shouldn't anchor A.
+    // A floats to top.
+    const initial = [at('A', 'C')];
+    const rels = [rel('B', 'A')];
+    const result = compactUpward(initial, rels, TIERS);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(tierOf(result.assignments, 'A')).toBe('S');
+    }
+  });
+
+  it('collapses a strict chain to the top N tiers', () => {
+    // A > B > C, all placed at F. Compact → S, A, B.
+    const initial = [at('A', 'F'), at('B', 'F'), at('C', 'F')];
+    const rels = [rel('A', 'B'), rel('B', 'C')];
+    const result = compactUpward(initial, rels, TIERS);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(tierOf(result.assignments, 'A')).toBe('S');
+      expect(tierOf(result.assignments, 'B')).toBe('A');
+      expect(tierOf(result.assignments, 'C')).toBe('B');
+    }
+  });
+
+  it('collapses a non-strict chain to the single top tier', () => {
+    // A >= B >= C, all placed at F. Compact → all at S.
+    const initial = [at('A', 'F'), at('B', 'F'), at('C', 'F')];
+    const rels = [rel('A', 'B', false), rel('B', 'C', false)];
+    const result = compactUpward(initial, rels, TIERS);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(tierOf(result.assignments, 'A')).toBe('S');
+      expect(tierOf(result.assignments, 'B')).toBe('S');
+      expect(tierOf(result.assignments, 'C')).toBe('S');
+    }
+  });
+
+  it('refuses when a strict chain is longer than the tier list', () => {
+    // 7-node strict chain in 6-tier list → fail.
+    const chain = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+    const initial = chain.map((id) => at(id, 'F'));
+    const rels: Relationship[] = [];
+    for (let i = 0; i < chain.length - 1; i++) rels.push(rel(chain[i], chain[i + 1]));
+    const names = new Map(chain.map((id) => [id, id]));
+    const result = compactUpward(initial, rels, TIERS, names);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/7 tiers/);
+      expect(result.reason).toMatch(/only has 6/);
+    }
+  });
+
+  it('does not count unranked links toward chain length', () => {
+    // 6-tier list. Chain in the graph: A > B > C > D > E > F > G > H (8 long).
+    // But only A and B are placed; the rest are unranked → compact ignores them.
+    const initial = [at('A', 'F'), at('B', 'F')];
+    const rels: Relationship[] = [
+      rel('A', 'B'), rel('B', 'C'), rel('C', 'D'),
+      rel('D', 'E'), rel('E', 'F'), rel('F', 'G'), rel('G', 'H'),
+    ];
+    const result = compactUpward(initial, rels, TIERS);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(tierOf(result.assignments, 'A')).toBe('S');
+      expect(tierOf(result.assignments, 'B')).toBe('A');
+    }
+  });
+
+  it('reports zero moved when the list is already compact', () => {
+    const initial = [at('A', 'S'), at('B', 'A')];
+    const rels = [rel('A', 'B')];
+    const result = compactUpward(initial, rels, TIERS);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.movedCount).toBe(0);
+  });
+});
+
+describe('maxChainLength', () => {
+  it('returns 0 for an empty graph', () => {
+    expect(maxChainLength([])).toBe(0);
+  });
+
+  it('returns 1 for an A=B (no strict gap)', () => {
+    const rels = [rel('A', 'B', false), rel('B', 'A', false)];
+    expect(maxChainLength(rels)).toBe(1);
+  });
+
+  it('counts strict edges only', () => {
+    // A > B >= C > D — strict depth is 3 (A,B/C,D) so needs 3 tiers.
+    const rels = [rel('A', 'B', true), rel('B', 'C', false), rel('C', 'D', true)];
+    expect(maxChainLength(rels)).toBe(3);
+  });
+
+  it('returns the longest of multiple chains', () => {
+    // Short: X > Y. Long: A > B > C > D.
+    const rels = [
+      rel('X', 'Y'),
+      rel('A', 'B'), rel('B', 'C'), rel('C', 'D'),
+    ];
+    expect(maxChainLength(rels)).toBe(4);
   });
 });

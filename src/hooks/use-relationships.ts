@@ -4,8 +4,10 @@ import type { Relationship, Character } from '../types';
 import { resolveUnique } from '../lib/fuzzy-match';
 import { parseChain, isParseError, type ParsedPair } from '../lib/relationship-parser';
 import { buildGraph, findUnsatisfiableCycle } from '../lib/graph';
+import { maxChainLength, longestChainPath } from '../lib/enforce-constraints';
 import { getActiveTierListId } from './use-tier-list';
 import { useUIStore } from '../stores/ui-store';
+import { DEFAULT_TIER_DEFS } from '../types';
 
 export function useRelationships(): Relationship[] {
   const tierListId = useUIStore((s) => s.activeTierListId) ?? 'default';
@@ -96,6 +98,7 @@ function dryRunAdd(
   superiorId: string,
   inferiorId: string,
   strict: boolean,
+  tierCount: number,
 ): { ok: true; isNew: boolean } | { ok: false; reason: string } {
   const key = `${superiorId}->${inferiorId}`;
   if (state.byPair.has(key)) return { ok: true, isNew: false };
@@ -123,6 +126,48 @@ function dryRunAdd(
 
   state.rels.push({ superiorId, inferiorId, strict });
   state.byPair.add(key);
+
+  // Reject adds that would force a chain longer than the tier list can hold.
+  // Rebuild the check each call — cheap for normal sizes, and it catches
+  // chains that only become too long after several earlier adds in a bulk
+  // paste (e.g. A>B, B>C, C>D, D>E, E>F, F>G in a 6-tier list — only the
+  // last one tips it over, but we still want to name the 7-deep chain).
+  const asRels = state.rels.map((r, i) => ({
+    id: `dry-${i}`,
+    tierListId: '',
+    superiorId: r.superiorId,
+    inferiorId: r.inferiorId,
+    strict: r.strict,
+    evidenceIds: [],
+    createdAt: 0,
+  }));
+  const needed = maxChainLength(asRels);
+  if (needed > tierCount) {
+    // Roll back so the caller's state machine stays consistent.
+    state.rels.pop();
+    state.byPair.delete(key);
+
+    const path = longestChainPath(asRels);
+    const names = path.map((id) => state.charMap.get(id)?.name ?? id);
+    const relByPair = new Map<string, boolean>();
+    for (const r of state.rels) {
+      relByPair.set(`${r.superiorId}->${r.inferiorId}`, r.strict);
+    }
+    // The new edge we just popped isn't in state.rels any more — put it in
+    // the lookup so the chain string shows the right operator for it too.
+    relByPair.set(`${superiorId}->${inferiorId}`, strict);
+
+    let chainStr = names[0] ?? '';
+    for (let i = 1; i < path.length; i++) {
+      const op = relByPair.get(`${path[i - 1]}->${path[i]}`) ? '>' : '>=';
+      chainStr += ` ${op} ${names[i]}`;
+    }
+    return {
+      ok: false,
+      reason: `Chain would need ${needed} tiers but the list only has ${tierCount}: ${chainStr}`,
+    };
+  }
+
   return { ok: true, isNew: true };
 }
 
@@ -178,7 +223,11 @@ export async function addRelationshipsFromChain(
   if (isParseError(parsed)) return { added: 0, errors: [parsed.error] };
 
   const tierListId = getActiveTierListId();
-  const allRels = await db.relationships.where('tierListId').equals(tierListId).toArray();
+  const [allRels, tierList] = await Promise.all([
+    db.relationships.where('tierListId').equals(tierListId).toArray(),
+    db.tierLists.get(tierListId),
+  ]);
+  const tierCount = (tierList?.tierDefs ?? DEFAULT_TIER_DEFS).length;
   const dryState = initDryRun(allRels, characters);
 
   const groups = groupMirrorPairs(parsed.pairs);
@@ -221,7 +270,7 @@ export async function addRelationshipsFromChain(
     let failure: string | null = null;
     const groupAdds: PendingAdd[] = [];
     for (const r of resolved) {
-      const result = dryRunAdd(dryState, r.sup.id, r.inf.id, r.strict);
+      const result = dryRunAdd(dryState, r.sup.id, r.inf.id, r.strict, tierCount);
       if (!result.ok) { failure = result.reason; break; }
       if (result.isNew) {
         groupAdds.push({ superiorId: r.sup.id, inferiorId: r.inf.id, strict: r.strict });

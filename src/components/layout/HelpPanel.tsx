@@ -114,7 +114,27 @@ export function HelpPanel() {
                 create an unsatisfiable cycle (containing any &gt;) are rejected with
                 the full cycle path shown.
               </li>
+              <li>
+                <span className="text-gray-300">Chain-length check:</span> A new relationship
+                that would build a strict-chain longer than the tier list can hold is
+                rejected outright — you'll see the offending chain and how many tiers it
+                would need. Applies whether the chain is created in one line or builds up
+                across many.
+              </li>
             </ul>
+          </section>
+
+          {/* Compact */}
+          <section>
+            <h3 className="text-white font-medium mb-2">Compact</h3>
+            <p className="text-xs text-gray-400">
+              <span className="text-gray-300">Compact</span> in the top bar moves every
+              <em> placed</em> character up as high as their relationships allow. Unranked
+              characters are left alone. A placed character with no relationships floats to
+              the top tier. If any chain is longer than the tier list can hold, nothing
+              moves and you'll see an error explaining which chain is the problem. Undo
+              with Ctrl+Z.
+            </p>
           </section>
 
           {/* Notes */}

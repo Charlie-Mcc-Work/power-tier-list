@@ -334,6 +334,224 @@ export function enforceWithinTierOrder(
   return result;
 }
 
+export type CompactResult =
+  | { ok: true; assignments: TierAssignment[]; movedCount: number }
+  | { ok: false; reason: string };
+
+/**
+ * Move every *placed* character to the highest tier it can occupy without
+ * breaking any relationship. Unranked characters are left alone.
+ *
+ * A placed character with no relationships to other placed characters
+ * floats all the way to the top tier (level 0). Relationships involving
+ * an unranked endpoint are ignored — those characters haven't been
+ * addressed by the user yet.
+ *
+ * If any chain of strict (>) edges through placed characters is longer
+ * than the tier list, the whole operation is refused with an explanation
+ * that names the offending chain.
+ */
+export function compactUpward(
+  currentAssignments: TierAssignment[],
+  relationships: Relationship[],
+  tierIds: string[],
+  charNames?: Map<string, string>,
+): CompactResult {
+  const maxIdx = tierIds.length - 1;
+  if (currentAssignments.length === 0) {
+    return { ok: true, assignments: [], movedCount: 0 };
+  }
+
+  const placedIds = new Set(currentAssignments.map((a) => a.characterId));
+  const relevantRels = relationships.filter(
+    (r) => placedIds.has(r.superiorId) && placedIds.has(r.inferiorId),
+  );
+
+  // Seed every placed character at the top tier.
+  const tierMap = new Map<string, number>();
+  for (const a of currentAssignments) tierMap.set(a.characterId, 0);
+
+  // Push-down fixpoint: each edge demands inferior >= superior + gap.
+  // Non-strict (>=) cycles don't push (gap 0). Strict cycles are impossible
+  // here because the cycle check rejects them at relationship-add time.
+  const MAX_ITER = Math.max(100, placedIds.size * tierIds.length + 1);
+  let changed = true;
+  let iter = 0;
+  while (changed && iter < MAX_ITER) {
+    changed = false;
+    iter++;
+    for (const rel of relevantRels) {
+      const si = tierMap.get(rel.superiorId)!;
+      const ii = tierMap.get(rel.inferiorId)!;
+      const gap = (rel.strict ?? false) ? 1 : 0;
+      if (si + gap > ii) {
+        tierMap.set(rel.inferiorId, si + gap);
+        changed = true;
+      }
+    }
+  }
+
+  // If anyone needs a tier beyond the bottom, explain via the chain that forced it.
+  for (const [charId, idx] of tierMap) {
+    if (idx > maxIdx) {
+      const chain = traceForcingChain(charId, relevantRels, tierMap);
+      const names = chain.map((id) => charNames?.get(id) ?? id.slice(0, 8));
+      const ops: string[] = [];
+      for (let i = 0; i < chain.length - 1; i++) {
+        const rel = relevantRels.find(
+          (r) => r.superiorId === chain[i] && r.inferiorId === chain[i + 1],
+        );
+        ops.push(rel?.strict ? '>' : '>=');
+      }
+      let chainStr = names[0] ?? '';
+      for (let i = 1; i < names.length; i++) chainStr += ` ${ops[i - 1]} ${names[i]}`;
+      return {
+        ok: false,
+        reason: `Chain needs ${idx + 1} tiers but the list only has ${tierIds.length}: ${chainStr}`,
+      };
+    }
+  }
+
+  const rebuilt = rebuildAssignments(tierMap, currentAssignments, tierIds);
+  const ordered = enforceWithinTierOrder(rebuilt, relationships);
+
+  const origTier = new Map(currentAssignments.map((a) => [a.characterId, a.tier]));
+  let movedCount = 0;
+  for (const a of ordered) {
+    if (origTier.get(a.characterId) !== a.tier) movedCount++;
+  }
+
+  return { ok: true, assignments: ordered, movedCount };
+}
+
+/**
+ * Walk back from `endId` along predecessors whose (level + gap) exactly
+ * produced the current level — this reconstructs the critical path that
+ * forced this node to its depth. Returns IDs in top-to-bottom order.
+ */
+function traceForcingChain(
+  endId: string,
+  rels: Relationship[],
+  tierMap: Map<string, number>,
+): string[] {
+  const rev = new Map<string, Array<{ id: string; strict: boolean }>>();
+  for (const r of rels) {
+    if (!rev.has(r.inferiorId)) rev.set(r.inferiorId, []);
+    rev.get(r.inferiorId)!.push({ id: r.superiorId, strict: r.strict ?? false });
+  }
+
+  const path: string[] = [endId];
+  const visited = new Set<string>([endId]);
+  let cur = endId;
+  while (true) {
+    const curLevel = tierMap.get(cur)!;
+    const preds = rev.get(cur) ?? [];
+    let next: string | null = null;
+    for (const p of preds) {
+      const gap = p.strict ? 1 : 0;
+      if ((tierMap.get(p.id) ?? 0) + gap === curLevel && !visited.has(p.id)) {
+        next = p.id;
+        break;
+      }
+    }
+    if (!next) break;
+    path.unshift(next);
+    visited.add(next);
+    cur = next;
+  }
+  return path;
+}
+
+/**
+ * Longest-path length (in tier *levels*) through the relationship DAG.
+ *
+ * Returned value is the 1-based chain length: the minimum number of
+ * tiers needed for the graph to be satisfiable. A single node = 1;
+ * A > B = 2; A >= B = 1 (no strict gap).
+ *
+ * Non-strict cycles (equality groups) collapse to a single level.
+ * Callers should have already rejected unsatisfiable (strict) cycles.
+ */
+export function maxChainLength(relationships: Relationship[]): number {
+  if (relationships.length === 0) return 0;
+
+  const nodes = new Set<string>();
+  for (const r of relationships) {
+    nodes.add(r.superiorId);
+    nodes.add(r.inferiorId);
+  }
+
+  const level = new Map<string, number>();
+  for (const n of nodes) level.set(n, 0);
+
+  const MAX_ITER = Math.max(100, nodes.size * nodes.size + 1);
+  let changed = true;
+  let iter = 0;
+  while (changed && iter < MAX_ITER) {
+    changed = false;
+    iter++;
+    for (const r of relationships) {
+      const si = level.get(r.superiorId)!;
+      const ii = level.get(r.inferiorId)!;
+      const gap = (r.strict ?? false) ? 1 : 0;
+      if (si + gap > ii) {
+        level.set(r.inferiorId, si + gap);
+        changed = true;
+      }
+    }
+  }
+
+  let maxLevel = 0;
+  for (const v of level.values()) if (v > maxLevel) maxLevel = v;
+  return maxLevel + 1;
+}
+
+/**
+ * Like `maxChainLength`, but reports which chain hit the maximum so we
+ * can tell the user *why* their addition was rejected.
+ */
+export function longestChainPath(relationships: Relationship[]): string[] {
+  if (relationships.length === 0) return [];
+
+  const nodes = new Set<string>();
+  for (const r of relationships) {
+    nodes.add(r.superiorId);
+    nodes.add(r.inferiorId);
+  }
+
+  const level = new Map<string, number>();
+  for (const n of nodes) level.set(n, 0);
+
+  const MAX_ITER = Math.max(100, nodes.size * nodes.size + 1);
+  let changed = true;
+  let iter = 0;
+  while (changed && iter < MAX_ITER) {
+    changed = false;
+    iter++;
+    for (const r of relationships) {
+      const si = level.get(r.superiorId)!;
+      const ii = level.get(r.inferiorId)!;
+      const gap = (r.strict ?? false) ? 1 : 0;
+      if (si + gap > ii) {
+        level.set(r.inferiorId, si + gap);
+        changed = true;
+      }
+    }
+  }
+
+  let deepest = '';
+  let deepestLevel = -1;
+  for (const [id, lvl] of level) {
+    if (lvl > deepestLevel) {
+      deepestLevel = lvl;
+      deepest = id;
+    }
+  }
+  if (!deepest) return [];
+
+  return traceForcingChain(deepest, relationships, level);
+}
+
 function rebuildAssignments(
   tierMap: Map<string, number>,
   originalAssignments: TierAssignment[],

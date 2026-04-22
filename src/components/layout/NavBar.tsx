@@ -9,6 +9,7 @@ import {
   detectImportFileKind,
   downloadExport,
 } from '../../db/export-import';
+import { compactTierList } from '../../hooks/use-tier-list';
 import type { AppView, LayoutMode } from '../../types';
 
 const tabs: { view: AppView; label: string }[] = [
@@ -44,6 +45,7 @@ export function NavBar() {
   const [busy, setBusy] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('disabled');
+  const [compactConfirmOpen, setCompactConfirmOpen] = useState(false);
 
   // Close the mobile menu when the viewport grows past sm.
   useEffect(() => {
@@ -85,6 +87,30 @@ export function NavBar() {
       setStatus({ kind: 'ok', text: `Exported "${rawName}" (${kb > 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB'})` });
     } catch (err) {
       setStatus({ kind: 'err', text: `Export failed: ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCompact() {
+    if (busy) return;
+    setCompactConfirmOpen(false);
+    setBusy(true);
+    setStatus(null);
+    try {
+      const result = await compactTierList();
+      if (!result.ok) {
+        setStatus({ kind: 'err', text: result.reason });
+      } else if (result.moved === 0) {
+        setStatus({ kind: 'ok', text: 'Already as compact as it can get — nothing moved.' });
+      } else {
+        setStatus({
+          kind: 'ok',
+          text: `Compacted ${result.moved} character${result.moved === 1 ? '' : 's'} upward.`,
+        });
+      }
+    } catch (err) {
+      setStatus({ kind: 'err', text: `Compact failed: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
       setBusy(false);
     }
@@ -301,6 +327,16 @@ export function NavBar() {
         </button>
 
         <button
+          onClick={() => setCompactConfirmOpen(true)}
+          disabled={busy}
+          className="hidden sm:inline-flex px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
+                     rounded transition-colors disabled:opacity-50"
+          title="Move every placed character up as far as their relationships allow"
+        >
+          Compact
+        </button>
+
+        <button
           onClick={() => setSnapshotsOpen(true)}
           className="hidden sm:inline-flex px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
                      rounded transition-colors"
@@ -363,6 +399,7 @@ export function NavBar() {
             <div className="grid grid-cols-2 gap-2">
               <MenuAction label="Present" onClick={() => { setPresenting(true); setMobileMenuOpen(false); }} accent />
               <MenuAction label={syncStatusLabel(syncStatus)} onClick={() => { setSyncOpen(true); setMobileMenuOpen(false); }} />
+              <MenuAction label="Compact" disabled={busy} onClick={() => { setCompactConfirmOpen(true); setMobileMenuOpen(false); }} />
               <MenuAction label="Backups" onClick={() => { setSnapshotsOpen(true); setMobileMenuOpen(false); }} />
               <MenuAction label="Help" onClick={() => { setHelpOpen(true); setMobileMenuOpen(false); }} />
               <MenuAction label={busy ? '…' : 'Export'} disabled={busy} onClick={() => { handleExport(); setMobileMenuOpen(false); }} />
@@ -419,6 +456,44 @@ export function NavBar() {
             </div>
           </div>
         </>
+      )}
+
+      {compactConfirmOpen && (
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setCompactConfirmOpen(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="bg-[#1a1a1a] border border-gray-700 rounded-xl shadow-2xl w-full max-w-md p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-medium text-white mb-2">Compact tier list?</h3>
+            <p className="text-xs text-gray-400 leading-relaxed">
+              Every placed character will move up as far as their relationships allow.
+              Characters in the Unranked pool are left alone. If any chain of relationships
+              is longer than the tier list can hold, nothing will move and you'll see an
+              error.
+            </p>
+            <p className="text-[11px] text-gray-500 mt-2">You can undo with Ctrl+Z.</p>
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button
+                onClick={() => setCompactConfirmOpen(false)}
+                className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCompact}
+                disabled={busy}
+                className="px-3 py-1.5 text-xs text-white bg-amber-700 hover:bg-amber-600 rounded transition-colors disabled:opacity-50"
+              >
+                Compact
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {status && (
