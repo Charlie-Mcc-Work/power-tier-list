@@ -6,14 +6,31 @@ const STORAGE_KEY_TOKEN = 'ptl_sync_token';
 
 export function getSyncConfig(): { url: string; token: string } | null {
   const url = localStorage.getItem(STORAGE_KEY_URL);
-  const token = localStorage.getItem(STORAGE_KEY_TOKEN);
-  if (!url || !token) return null;
+  if (!url) return null;
+  // Token is optional — server may run in open mode on a private network.
+  const token = localStorage.getItem(STORAGE_KEY_TOKEN) ?? '';
   return { url, token };
 }
 
 export function setSyncConfig(url: string, token: string) {
   localStorage.setItem(STORAGE_KEY_URL, url.replace(/\/$/, ''));
-  localStorage.setItem(STORAGE_KEY_TOKEN, token);
+  if (token) {
+    localStorage.setItem(STORAGE_KEY_TOKEN, token);
+  } else {
+    localStorage.removeItem(STORAGE_KEY_TOKEN);
+  }
+}
+
+/** Probe server auth requirement. Returns null if unreachable. */
+export async function probeServer(url: string): Promise<{ requiresAuth: boolean } | null> {
+  try {
+    const res = await fetch(`${url.replace(/\/$/, '')}/api/health`);
+    if (!res.ok) return null;
+    const j = await res.json();
+    return { requiresAuth: Boolean(j?.requiresAuth) };
+  } catch {
+    return null;
+  }
 }
 
 export function clearSyncConfig() {
@@ -25,14 +42,13 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   const config = getSyncConfig();
   if (!config) throw new Error('Sync not configured');
 
-  const res = await fetch(`${config.url}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.token}`,
-      ...options.headers,
-    },
-  });
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> | undefined),
+  };
+  if (config.token) headers['Authorization'] = `Bearer ${config.token}`;
+
+  const res = await fetch(`${config.url}${path}`, { ...options, headers });
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');

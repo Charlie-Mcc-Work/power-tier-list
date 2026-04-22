@@ -1,36 +1,43 @@
 import { useState, useEffect } from 'react';
-import { getSyncConfig, setSyncConfig, clearSyncConfig, syncPush, syncPull, createShareLink, checkConnection } from '../../lib/sync';
+import { getSyncConfig, setSyncConfig, clearSyncConfig, syncPush, syncPull, createShareLink, checkConnection, probeServer } from '../../lib/sync';
 import { useUIStore } from '../../stores/ui-store';
 
 export function SyncPanel() {
   const open = useUIStore((s) => s.syncOpen);
   const setSyncOpen = useUIStore((s) => s.setSyncOpen);
   const setOpen = (v: boolean) => setSyncOpen(v);
-  // Lazy-initialize form fields from the saved sync config so we don't
-  // setState synchronously in an effect body.
-  const [url, setUrl] = useState(() => getSyncConfig()?.url ?? '');
+  // Default URL to the same origin the app is served from — in a single-container
+  // self-host deploy the frontend and sync API share an origin, so no typing needed.
+  const [url, setUrl] = useState(() => getSyncConfig()?.url ?? window.location.origin);
   const [token, setToken] = useState(() => getSyncConfig()?.token ?? '');
+  const [requiresAuth, setRequiresAuth] = useState<boolean | null>(null);
   const [connected, setConnected] = useState<boolean | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const activeTierListId = useUIStore((s) => s.activeTierListId);
 
-  // When the panel opens, re-check connection. Cancellation guards against
-  // a late resolve updating state after the user has already closed the panel.
+  // When the panel opens, probe the server for its auth requirement and (if
+  // already configured) re-check the live connection.
   useEffect(() => {
-    if (!open || !getSyncConfig()) return;
+    if (!open || !url) return;
     let cancelled = false;
-    checkConnection().then((ok) => { if (!cancelled) setConnected(ok); });
+    probeServer(url).then((probe) => {
+      if (cancelled) return;
+      setRequiresAuth(probe?.requiresAuth ?? null);
+    });
+    if (getSyncConfig()) {
+      checkConnection().then((ok) => { if (!cancelled) setConnected(ok); });
+    }
     return () => { cancelled = true; };
-  }, [open]);
+  }, [open, url]);
 
   async function handleSave() {
     setSyncConfig(url, token);
     setLoading(true);
     const ok = await checkConnection();
     setConnected(ok);
-    setStatus(ok ? 'Connected!' : 'Connection failed — check URL and token');
+    setStatus(ok ? 'Connected!' : 'Connection failed — check URL' + (requiresAuth ? ' and token' : ''));
     setLoading(false);
   }
 
@@ -111,19 +118,30 @@ export function SyncPanel() {
               className="w-full bg-[#141414] border border-gray-700 rounded px-3 py-2 text-sm text-white
                          placeholder-gray-600 focus:border-amber-400 focus:outline-none"
             />
-            <label className="text-xs text-gray-400">Sync Token</label>
-            <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="Your secret token"
-              className="w-full bg-[#141414] border border-gray-700 rounded px-3 py-2 text-sm text-white
-                         placeholder-gray-600 focus:border-amber-400 focus:outline-none"
-            />
+            {requiresAuth === false && (
+              <p className="text-[11px] text-gray-500">
+                Server is in open mode — no token needed. Intended for private networks like Tailscale.
+              </p>
+            )}
+            {requiresAuth !== false && (
+              <>
+                <label className="text-xs text-gray-400">
+                  Sync Token {requiresAuth === null && <span className="text-gray-600">(if required)</span>}
+                </label>
+                <input
+                  type="password"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder="Your secret token"
+                  className="w-full bg-[#141414] border border-gray-700 rounded px-3 py-2 text-sm text-white
+                             placeholder-gray-600 focus:border-amber-400 focus:outline-none"
+                />
+              </>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={handleSave}
-                disabled={!url || !token || loading}
+                disabled={!url || (requiresAuth === true && !token) || loading}
                 className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-sm rounded
                            transition-colors disabled:opacity-50"
               >

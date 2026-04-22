@@ -16,9 +16,10 @@ const PUBLIC_DIR = process.env.PUBLIC_DIR || join(__dirname, 'public');
 const SYNC_ENABLED = Boolean(SYNC_TOKEN);
 
 if (!SYNC_ENABLED) {
-  console.warn(
-    'WARN: SYNC_TOKEN is not set. Sync/share endpoints will return 503. ' +
-    'The app still works offline via IndexedDB. Set SYNC_TOKEN to enable sync.',
+  console.log(
+    'INFO: SYNC_TOKEN is not set — running in open mode. Sync endpoints accept ' +
+    'unauthenticated requests. Intended for private networks (Tailscale, LAN). ' +
+    'Set SYNC_TOKEN to require Bearer auth.',
   );
 }
 
@@ -48,12 +49,11 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '200mb' }));
 
-// Auth middleware for sync endpoints. If sync is disabled (no SYNC_TOKEN set)
-// short-circuit with a clear error so the frontend can guide the user.
+// Auth middleware for sync endpoints. If SYNC_TOKEN is unset the server runs
+// in open mode — any request passes through. Intended for private networks
+// (Tailscale, LAN) where Tailscale or the network boundary gates access.
 function requireAuth(req, res, next) {
-  if (!SYNC_ENABLED) {
-    return res.status(503).json({ error: 'Sync is not configured on this server (SYNC_TOKEN unset).' });
-  }
+  if (!SYNC_ENABLED) return next();
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (token !== SYNC_TOKEN) {
     return res.status(401).json({ error: 'Invalid token' });
@@ -124,12 +124,13 @@ app.get('/api/shared/:code', (req, res) => {
   res.json(row);
 });
 
-// Health check
+// Health check. `requiresAuth: false` tells the client it can push/pull
+// without a token (server is in open mode).
 app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
-    syncEnabled: SYNC_ENABLED,
-    lists: SYNC_ENABLED ? db.prepare('SELECT COUNT(*) as count FROM tier_lists').get() : null,
+    requiresAuth: SYNC_ENABLED,
+    lists: db.prepare('SELECT COUNT(*) as count FROM tier_lists').get(),
   });
 });
 
