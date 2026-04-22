@@ -115,9 +115,9 @@ export async function deleteCharacter(id: string): Promise<void> {
 
 /**
  * Delete many characters in a single transaction. Removes their image blobs,
- * associated relationships, strips them out of evidence + tier assignments,
- * and leaves the DB consistent. Much faster than calling deleteCharacter
- * in a loop when the user selects dozens to remove at once.
+ * associated relationships, and tier assignments so the DB stays consistent.
+ * Much faster than calling deleteCharacter in a loop when the user selects
+ * dozens to remove at once.
  */
 export async function deleteCharacters(ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
@@ -151,7 +151,7 @@ export async function deleteCharacters(ids: string[]): Promise<number> {
 
   await db.transaction(
     'rw',
-    [db.characters, db.images, db.relationships, db.evidence, db.tierLists],
+    [db.characters, db.images, db.relationships, db.tierLists],
     async () => {
       if (imageIdsToDelete.length > 0) await db.images.bulkDelete(imageIdsToDelete);
       await db.characters.bulkDelete(real.map((c) => c.id));
@@ -162,15 +162,6 @@ export async function deleteCharacters(ids: string[]): Promise<number> {
         .filter((r) => idSet.has(r.superiorId) || idSet.has(r.inferiorId))
         .map((r) => r.id);
       if (relsToDelete.length > 0) await db.relationships.bulkDelete(relsToDelete);
-
-      // Evidence: strip deleted character ids from each evidence row's refs.
-      const evidence = await db.evidence.toArray();
-      for (const ev of evidence) {
-        const filtered = ev.characterIds.filter((cid) => !idSet.has(cid));
-        if (filtered.length !== ev.characterIds.length) {
-          await db.evidence.update(ev.id, { characterIds: filtered });
-        }
-      }
 
       // Tier lists: strip deleted character ids from tier assignments.
       for (const tlId of tierListIds) {

@@ -1,6 +1,6 @@
 import { db } from './database';
 import type { Snapshot } from './database';
-import type { Character, TierList, Relationship, Evidence, ImageBlob } from '../types';
+import type { Character, TierList, Relationship, ImageBlob } from '../types';
 
 interface ExportData {
   version: 1;
@@ -17,7 +17,8 @@ interface ExportData {
   characters: Character[];
   tierLists: TierList[];
   relationships: Relationship[];
-  evidence: Evidence[];
+  /** Legacy field from pre-v6 exports. Ignored on import; never written. */
+  evidence?: unknown[];
   images: Array<Omit<ImageBlob, 'blob'> & { dataUrl: string }>;
 }
 
@@ -57,11 +58,10 @@ function dataUrlToBlob(dataUrl: string): Blob {
  * without explicit opt-in.
  */
 export async function exportData(): Promise<string> {
-  const [characters, tierLists, relationships, evidence, images] = await Promise.all([
+  const [characters, tierLists, relationships, images] = await Promise.all([
     db.characters.toArray(),
     db.tierLists.toArray(),
     db.relationships.toArray(),
-    db.evidence.toArray(),
     db.images.toArray(),
   ]);
 
@@ -81,7 +81,6 @@ export async function exportData(): Promise<string> {
     characters,
     tierLists,
     relationships,
-    evidence,
     images: serializedImages,
   };
 
@@ -95,11 +94,10 @@ export async function exportData(): Promise<string> {
  * images table, so references stay valid.
  */
 export async function exportCoreData(): Promise<string> {
-  const [characters, tierLists, relationships, evidence] = await Promise.all([
+  const [characters, tierLists, relationships] = await Promise.all([
     db.characters.toArray(),
     db.tierLists.toArray(),
     db.relationships.toArray(),
-    db.evidence.toArray(),
   ]);
 
   const data: ExportData = {
@@ -109,7 +107,6 @@ export async function exportCoreData(): Promise<string> {
     characters,
     tierLists,
     relationships,
-    evidence,
     images: [],
   };
 
@@ -120,7 +117,6 @@ export interface ImportSummary {
   tierLists: number;
   characters: number;
   relationships: number;
-  evidence: number;
   images: number;
 }
 
@@ -137,14 +133,25 @@ export interface ImportOptions {
   mode?: ImportMode;
 }
 
+/**
+ * Drop the pre-v6 `evidenceIds` field from a relationship object. Used on
+ * every import path so old files and snapshots keep loading cleanly without
+ * polluting the live DB with the stale field.
+ */
+function stripLegacyEvidenceIds(rel: Relationship): Relationship {
+  const copy = { ...(rel as Relationship & { evidenceIds?: unknown }) };
+  delete copy.evidenceIds;
+  return copy;
+}
+
 async function applyImportedData(data: ExportData, mode: ImportMode): Promise<void> {
   // Partial snapshots leave the images table alone (both in merge AND replace
   // mode — a partial file has no images to use as a replacement, so wiping
   // them would just break image refs).
   const includesImages = !data.partial && !!data.images && data.images.length > 0;
   const tables = includesImages
-    ? [db.characters, db.tierLists, db.relationships, db.evidence, db.images]
-    : [db.characters, db.tierLists, db.relationships, db.evidence];
+    ? [db.characters, db.tierLists, db.relationships, db.images]
+    : [db.characters, db.tierLists, db.relationships];
 
   const imagesToWrite: ImageBlob[] = includesImages
     ? (data.images ?? []).map((img) => ({
@@ -156,13 +163,16 @@ async function applyImportedData(data: ExportData, mode: ImportMode): Promise<vo
       }))
     : [];
 
+  // Pre-v6 rels had an evidenceIds field we no longer use. Strip it on the way
+  // in so old export files and old snapshots still load cleanly.
+  const cleanedRels: Relationship[] = (data.relationships ?? []).map((r) => stripLegacyEvidenceIds(r));
+
   await db.transaction('rw', tables, async () => {
     if (mode === 'replace') {
       await Promise.all([
         db.characters.clear(),
         db.tierLists.clear(),
         db.relationships.clear(),
-        db.evidence.clear(),
       ]);
       if (includesImages) await db.images.clear();
     }
@@ -173,8 +183,7 @@ async function applyImportedData(data: ExportData, mode: ImportMode): Promise<vo
     const writes: Promise<unknown>[] = [
       db.characters.bulkPut(data.characters),
       db.tierLists.bulkPut(data.tierLists),
-      db.relationships.bulkPut(data.relationships ?? []),
-      db.evidence.bulkPut(data.evidence ?? []),
+      db.relationships.bulkPut(cleanedRels),
     ];
     if (includesImages) {
       writes.push(db.images.bulkPut(imagesToWrite));
@@ -218,7 +227,6 @@ export async function importData(
     tierLists: data.tierLists.length,
     characters: data.characters.length,
     relationships: (data.relationships ?? []).length,
-    evidence: (data.evidence ?? []).length,
     images: (data.images ?? []).length,
   };
 }
@@ -235,9 +243,8 @@ export function downloadExport(json: string, filename = 'power-tier-list-export.
 
 // ── Per-tier-list export / import ────────────────────────────────────
 // A "single-list" file contains exactly one tier list plus the characters,
-// relationships, evidence, and images referenced by it. It's meant for
-// sharing a list or backing up just one list without touching the rest of
-// the DB.
+// relationships, and images referenced by it. Meant for sharing a list or
+// backing up one list without touching the rest of the DB.
 
 export interface SingleListExport {
   version: 2;
@@ -246,7 +253,8 @@ export interface SingleListExport {
   tierList: TierList;
   characters: Character[];
   relationships: Relationship[];
-  evidence: Evidence[];
+  /** Legacy field from pre-v6 files. Ignored on import; never written. */
+  evidence?: unknown[];
   images: Array<Omit<ImageBlob, 'blob'> & { dataUrl: string }>;
 }
 
@@ -283,10 +291,9 @@ export async function exportSingleList(tierListId: string): Promise<string> {
   const tl = await db.tierLists.get(tierListId);
   if (!tl) throw new Error('Tier list not found');
 
-  const [characters, relationships, evidence] = await Promise.all([
+  const [characters, relationships] = await Promise.all([
     db.characters.where('tierListId').equals(tierListId).toArray(),
     db.relationships.where('tierListId').equals(tierListId).toArray(),
-    db.evidence.where('tierListId').equals(tierListId).toArray(),
   ]);
 
   const imageIds = Array.from(
@@ -312,7 +319,6 @@ export async function exportSingleList(tierListId: string): Promise<string> {
     tierList: tl,
     characters,
     relationships,
-    evidence,
     images: serializedImages,
   };
   return JSON.stringify(data);
@@ -381,8 +387,6 @@ export async function importSingleListReplace(
   for (const c of data.characters) charIdMap.set(c.id, crypto.randomUUID());
   const relIdMap = new Map<string, string>();
   for (const r of data.relationships) relIdMap.set(r.id, crypto.randomUUID());
-  const evIdMap = new Map<string, string>();
-  for (const e of data.evidence) evIdMap.set(e.id, crypto.randomUUID());
 
   // Write images FIRST under fresh ids so we know the mapping before we
   // remap character.imageId below. Done outside the big transaction because
@@ -407,34 +411,24 @@ export async function importSingleListReplace(
     updatedAt: now,
   };
   const newRels: Relationship[] = data.relationships.map((r) => ({
-    ...r,
+    ...stripLegacyEvidenceIds(r),
     id: relIdMap.get(r.id)!,
     tierListId: targetTierListId,
     superiorId: charIdMap.get(r.superiorId) ?? r.superiorId,
     inferiorId: charIdMap.get(r.inferiorId) ?? r.inferiorId,
-    evidenceIds: r.evidenceIds.map((eid) => evIdMap.get(eid) ?? eid),
-  }));
-  const newEv: Evidence[] = data.evidence.map((e) => ({
-    ...e,
-    id: evIdMap.get(e.id)!,
-    tierListId: targetTierListId,
-    characterIds: e.characterIds.map((cid) => charIdMap.get(cid) ?? cid),
-    relationshipIds: e.relationshipIds.map((rid) => relIdMap.get(rid) ?? rid),
   }));
 
   await db.transaction(
     'rw',
-    [db.tierLists, db.characters, db.relationships, db.evidence],
+    [db.tierLists, db.characters, db.relationships],
     async () => {
       // Wipe only this list's scoped data, not anyone else's.
       await db.characters.where('tierListId').equals(targetTierListId).delete();
       await db.relationships.where('tierListId').equals(targetTierListId).delete();
-      await db.evidence.where('tierListId').equals(targetTierListId).delete();
 
       await db.tierLists.put(remappedTierList);
       if (newChars.length > 0) await db.characters.bulkAdd(newChars);
       if (newRels.length > 0) await db.relationships.bulkAdd(newRels);
-      if (newEv.length > 0) await db.evidence.bulkAdd(newEv);
     },
   );
 
@@ -442,7 +436,6 @@ export async function importSingleListReplace(
     tierLists: 1,
     characters: newChars.length,
     relationships: newRels.length,
-    evidence: newEv.length,
     images: data.images.length,
   };
 }
@@ -465,8 +458,6 @@ export async function importSingleListAsNew(
   for (const c of data.characters) charIdMap.set(c.id, crypto.randomUUID());
   const relIdMap = new Map<string, string>();
   for (const r of data.relationships) relIdMap.set(r.id, crypto.randomUUID());
-  const evIdMap = new Map<string, string>();
-  for (const e of data.evidence) evIdMap.set(e.id, crypto.randomUUID());
 
   // Fresh image copies so the new list is self-contained.
   const imageIdMap = await writeSingleListImagesWithFreshIds(data.images);
@@ -489,29 +480,20 @@ export async function importSingleListAsNew(
     updatedAt: now,
   };
   const newRels: Relationship[] = data.relationships.map((r) => ({
-    ...r,
+    ...stripLegacyEvidenceIds(r),
     id: relIdMap.get(r.id)!,
     tierListId: newTierListId,
     superiorId: charIdMap.get(r.superiorId) ?? r.superiorId,
     inferiorId: charIdMap.get(r.inferiorId) ?? r.inferiorId,
-    evidenceIds: r.evidenceIds.map((eid) => evIdMap.get(eid) ?? eid),
-  }));
-  const newEv: Evidence[] = data.evidence.map((e) => ({
-    ...e,
-    id: evIdMap.get(e.id)!,
-    tierListId: newTierListId,
-    characterIds: e.characterIds.map((cid) => charIdMap.get(cid) ?? cid),
-    relationshipIds: e.relationshipIds.map((rid) => relIdMap.get(rid) ?? rid),
   }));
 
   await db.transaction(
     'rw',
-    [db.tierLists, db.characters, db.relationships, db.evidence],
+    [db.tierLists, db.characters, db.relationships],
     async () => {
       await db.tierLists.add(newTierList);
       if (newChars.length > 0) await db.characters.bulkAdd(newChars);
       if (newRels.length > 0) await db.relationships.bulkAdd(newRels);
-      if (newEv.length > 0) await db.evidence.bulkAdd(newEv);
     },
   );
 
@@ -519,7 +501,6 @@ export async function importSingleListAsNew(
     tierLists: 1,
     characters: newChars.length,
     relationships: newRels.length,
-    evidence: newEv.length,
     images: data.images.length,
     newTierListId,
   };

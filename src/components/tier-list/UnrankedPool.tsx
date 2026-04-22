@@ -53,7 +53,7 @@ export function UnrankedPool({ characters, characterIds }: Props) {
     if (busy || selected.size === 0) return;
     const count = selected.size;
     if (!window.confirm(
-      `Delete ${count} character${count === 1 ? '' : 's'}? This also removes any relationships and evidence involving them. Restorable via Backups.`,
+      `Delete ${count} character${count === 1 ? '' : 's'}? This also removes any relationships involving them. Restorable via Backups.`,
     )) return;
     setBusy(true);
     try {

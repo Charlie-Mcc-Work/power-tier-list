@@ -1,10 +1,8 @@
 import { useState } from 'react';
 import { useCharacter, updateCharacterName, deleteCharacter } from '../../hooks/use-characters';
 import { useRelationships } from '../../hooks/use-relationships';
-import { useEvidenceForCharacter } from '../../hooks/use-evidence';
 import { useCharacters } from '../../hooks/use-characters';
 import { useImage } from '../../hooks/use-image';
-import { EvidenceItem } from '../evidence/EvidenceItem';
 
 interface Props {
   characterId: string;
@@ -15,7 +13,6 @@ export function CharacterDetail({ characterId, onClose }: Props) {
   const character = useCharacter(characterId);
   const characters = useCharacters();
   const relationships = useRelationships();
-  const evidence = useEvidenceForCharacter(characterId);
   const imageUrl = useImage(character?.imageId);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editName, setEditName] = useState('');
@@ -144,22 +141,6 @@ export function CharacterDetail({ characterId, onClose }: Props) {
                   </div>
                 );
               })}
-            </div>
-          )}
-        </div>
-
-        {/* Evidence */}
-        <div>
-          <h4 className="text-xs font-medium text-gray-400 mb-2 uppercase tracking-wider">
-            Evidence ({evidence.length})
-          </h4>
-          {evidence.length === 0 ? (
-            <p className="text-xs text-gray-500">No evidence</p>
-          ) : (
-            <div className="space-y-2">
-              {evidence.map((ev) => (
-                <EvidenceItem key={ev.id} evidence={ev} characters={characters} />
-              ))}
             </div>
           )}
         </div>

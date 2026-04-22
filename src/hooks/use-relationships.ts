@@ -58,7 +58,6 @@ export async function addRelationship(
     superiorId,
     inferiorId,
     strict,
-    evidenceIds: [],
     note,
     createdAt: Date.now(),
   });
@@ -138,7 +137,6 @@ function dryRunAdd(
     superiorId: r.superiorId,
     inferiorId: r.inferiorId,
     strict: r.strict,
-    evidenceIds: [],
     createdAt: 0,
   }));
   const needed = maxChainLength(asRels);
@@ -310,7 +308,6 @@ export async function addRelationshipsFromChain(
           superiorId: p.superiorId,
           inferiorId: p.inferiorId,
           strict: p.strict,
-          evidenceIds: [],
           note,
           createdAt: now,
         });

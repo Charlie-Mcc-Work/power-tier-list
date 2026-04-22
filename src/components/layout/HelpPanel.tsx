@@ -184,9 +184,8 @@ export function HelpPanel() {
                 Drag-and-drop is disabled while select mode is active.
               </li>
               <li>
-                Deleting a character also removes their image, every relationship they appear in,
-                and strips them out of any evidence lists. All restorable via Backups if you
-                made a mistake.
+                Deleting a character also removes their image and every relationship they
+                appear in. All restorable via Backups if you made a mistake.
               </li>
               <li>
                 Clicking any card (not in select mode) still opens the Character Details panel,
@@ -221,7 +220,7 @@ export function HelpPanel() {
               </li>
               <li>
                 <span className="text-gray-300">Export</span> — saves <em>only the tier list you&rsquo;re currently
-                viewing</em>, along with its characters, relationships, evidence, and the images those
+                viewing</em>, along with its characters, relationships, and the images those
                 characters use. The file is called <code>tierlist-&lt;name&gt;-YYYY-MM-DD.json</code>.
                 <br />
                 <span className="text-gray-300">Import</span> — pick a file, then the dialog offers two choices:

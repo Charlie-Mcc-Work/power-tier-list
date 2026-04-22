@@ -15,7 +15,6 @@ import type { AppView, LayoutMode } from '../../types';
 const tabs: { view: AppView; label: string }[] = [
   { view: 'tierlist', label: 'Tier List' },
   { view: 'relationships', label: 'Relationships' },
-  { view: 'evidence', label: 'Evidence' },
 ];
 
 const layouts: { mode: LayoutMode; label: string; title: string }[] = [

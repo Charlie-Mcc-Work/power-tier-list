@@ -16,7 +16,6 @@ function rel(superiorId: string, inferiorId: string, strict = true): Relationshi
     superiorId,
     inferiorId,
     strict,
-    evidenceIds: [],
     createdAt: 0,
   };
 }

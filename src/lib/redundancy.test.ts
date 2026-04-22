@@ -9,7 +9,6 @@ function rel(id: string, superiorId: string, inferiorId: string, strict = true):
     superiorId,
     inferiorId,
     strict,
-    evidenceIds: [],
     createdAt: 0,
   };
 }

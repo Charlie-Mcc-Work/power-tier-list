@@ -45,7 +45,7 @@ Local-first app — all state lives in IndexedDB via Dexie.js. No backend. React
 
 **Constraint enforcement:** Relationships are enforced rules, not suggestions. The enforcement engine (`src/lib/enforce-constraints.ts`) runs after every drag-drop and relationship change. It uses BFS to cascade constraints through the relationship graph, respecting the strict (`>`, 1-tier gap) vs non-strict (`>=`, same tier OK + within-tier ordering) distinction.
 
-**Per-list scoping:** Characters, relationships, and evidence are scoped to each tier list via `tierListId`. Hooks filter by `getActiveTierListId()`. Deleting a tier list cascades to all associated data.
+**Per-list scoping:** Characters and relationships are scoped to each tier list via `tierListId`. Hooks filter by `getActiveTierListId()`. Deleting a tier list cascades to all associated data.
 
 ## Key Files
 
@@ -54,7 +54,7 @@ Local-first app — all state lives in IndexedDB via Dexie.js. No backend. React
 - `src/lib/relationship-parser.ts` — Chain/fan-out parser for "A > B, C, D" syntax
 - `src/hooks/use-tier-list.ts` — Tier assignment CRUD + enforceAndAutoPlace + tier def management
 - `src/hooks/use-relationships.ts` — Relationship CRUD + chain add + cycle prevention
-- `src/db/database.ts` — Dexie schema (6 tables including snapshots)
+- `src/db/database.ts` — Dexie schema (characters, tierLists, relationships, images, snapshots + snapshotData, meta)
 - `src/db/export-import.ts` — Export/import + snapshot backup system
 - `src/components/layout/HelpPanel.tsx` — User-facing reference for all rules and controls (KEEP UP TO DATE)
 
@@ -65,5 +65,5 @@ Local-first app — all state lives in IndexedDB via Dexie.js. No backend. React
 - Character images are optional (imageId is nullable)
 - The `strict` field on relationships controls enforcement gap (true = 1-tier minimum, false = 0)
 - Non-strict `>=` also enforces within-tier ordering (A before B in the same tier)
-- Characters, relationships, evidence are scoped by `tierListId`
+- Characters and relationships are scoped by `tierListId`
 - Auto-snapshots on app start + before imports; last 20 kept

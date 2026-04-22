@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from './database';
-import type { Character, TierList, Relationship, Evidence, ImageBlob } from '../types';
+import type { Character, TierList, Relationship, ImageBlob } from '../types';
 import { DEFAULT_TIER_DEFS } from '../types';
 import {
   exportData,
@@ -28,12 +28,11 @@ import {
 async function resetDb() {
   await db.transaction(
     'rw',
-    [db.characters, db.tierLists, db.relationships, db.evidence, db.images, db.snapshots, db.snapshotData, db.meta],
+    [db.characters, db.tierLists, db.relationships, db.images, db.snapshots, db.snapshotData, db.meta],
     async () => {
       await db.characters.clear();
       await db.tierLists.clear();
       await db.relationships.clear();
-      await db.evidence.clear();
       await db.images.clear();
       await db.snapshots.clear();
       await db.snapshotData.clear();
@@ -61,18 +60,6 @@ function rel(id: string, superiorId: string, inferiorId: string, strict = true, 
     superiorId,
     inferiorId,
     strict,
-    evidenceIds: [],
-    createdAt: 1,
-  };
-}
-function ev(id: string, text: string, characterIds: string[], tierListId = 't1'): Evidence {
-  return {
-    id,
-    tierListId,
-    kind: 'feat',
-    characterIds,
-    relationshipIds: [],
-    text,
     createdAt: 1,
   };
 }
@@ -102,14 +89,12 @@ async function seedSample() {
     rel('r1', 'c1', 'c2', true),
     rel('r2', 'c1', 'c2', false), // will be deduped by schema but we're seeding raw
   ];
-  const evidence = [ev('e1', 'Chapter 1', ['c1', 'c2'])];
   const images = [img('i1', [0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])];
 
   await db.tierLists.bulkAdd([tierListA, tierListB]);
   await db.characters.bulkAdd(characters);
   // Don't actually add both r1+r2 (violates unique index); just r1.
   await db.relationships.bulkAdd([relationships[0]]);
-  await db.evidence.bulkAdd(evidence);
   await db.images.bulkAdd(images);
 }
 
@@ -130,14 +115,12 @@ describe('Export round-trip (full, with images)', () => {
     expect(summary.tierLists).toBe(2);
     expect(summary.characters).toBe(3);
     expect(summary.relationships).toBe(1);
-    expect(summary.evidence).toBe(1);
     expect(summary.images).toBe(1);
 
-    const [tls, chars, rels, evs, imgs] = await Promise.all([
+    const [tls, chars, rels, imgs] = await Promise.all([
       db.tierLists.toArray(),
       db.characters.toArray(),
       db.relationships.toArray(),
-      db.evidence.toArray(),
       db.images.toArray(),
     ]);
 
@@ -153,9 +136,6 @@ describe('Export round-trip (full, with images)', () => {
     expect(rels[0].superiorId).toBe('c1');
     expect(rels[0].inferiorId).toBe('c2');
     expect(rels[0].strict).toBe(true);
-
-    expect(evs).toHaveLength(1);
-    expect(evs[0].text).toBe('Chapter 1');
 
     expect(imgs).toHaveLength(1);
     expect(imgs[0].mimeType).toBe('image/png');
@@ -174,7 +154,6 @@ describe('Export round-trip (full, with images)', () => {
       tierLists: [{ id: 'only', name: 'Only', tierDefs: DEFAULT_TIER_DEFS, tiers: [], createdAt: 1, updatedAt: 1 }],
       characters: [],
       relationships: [],
-      evidence: [],
       images: [],
     });
 
@@ -228,8 +207,6 @@ describe('Per-list export/import (single-list files)', () => {
     // Relationship r1 belongs to t1 and should be included.
     expect(parsed.relationships).toHaveLength(1);
     expect(parsed.relationships[0].id).toBe('r1');
-    // Evidence e1 belongs to t1.
-    expect(parsed.evidence).toHaveLength(1);
     // c1 references image i1; that image should be included, and only that one.
     expect(parsed.images).toHaveLength(1);
     expect(parsed.images[0].id).toBe('i1');
@@ -519,7 +496,6 @@ describe('Import in merge mode', () => {
       tierLists: [{ id: 't-new', name: 'Imported', tierDefs: DEFAULT_TIER_DEFS, tiers: [], createdAt: 1, updatedAt: 1 }],
       characters: [{ id: 'c-new', tierListId: 't-new', name: 'NewChar', createdAt: 1, updatedAt: 1 }],
       relationships: [],
-      evidence: [],
       images: [],
     });
 
@@ -549,7 +525,6 @@ describe('Import in merge mode', () => {
       tierLists: [{ id: 't1', name: 'Renamed', tierDefs: DEFAULT_TIER_DEFS, tiers: [], createdAt: 1, updatedAt: 2 }],
       characters: [{ id: 'c1', tierListId: 't1', name: 'NewLuffy', createdAt: 1, updatedAt: 2 }],
       relationships: [],
-      evidence: [],
       images: [],
     });
 
@@ -576,7 +551,6 @@ describe('Import in merge mode', () => {
       tierLists: [{ id: 't-new', name: 'Imported', tierDefs: DEFAULT_TIER_DEFS, tiers: [], createdAt: 1, updatedAt: 1 }],
       characters: [],
       relationships: [],
-      evidence: [],
       images: [],
     });
 

@@ -49,21 +49,7 @@ export interface Relationship {
   inferiorId: string;
   /** true = must be in a strictly higher tier (>), false = same tier OK (>=) */
   strict: boolean;
-  evidenceIds: string[];
   note?: string;
-  createdAt: number;
-}
-
-export type EvidenceKind = 'feat' | 'statement' | 'title';
-
-export interface Evidence {
-  id: string;
-  tierListId: string;
-  kind: EvidenceKind;
-  characterIds: string[];
-  relationshipIds: string[];
-  text: string;
-  source?: string;
   createdAt: number;
 }
 
@@ -75,7 +61,7 @@ export interface ImageBlob {
   createdAt: number;
 }
 
-export type AppView = 'tierlist' | 'relationships' | 'evidence';
+export type AppView = 'tierlist' | 'relationships';
 export type LayoutMode = 'triple' | 'split' | 'tabs';
 
 export interface Inconsistency {

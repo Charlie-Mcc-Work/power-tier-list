@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { Character, TierList, Relationship, Evidence, ImageBlob } from '../types';
+import type { Character, TierList, Relationship, ImageBlob } from '../types';
 
 /**
  * Snapshot metadata. Kept separate from the payload blob so listing every
@@ -28,7 +28,6 @@ const db = new Dexie('PowerTierListDB') as Dexie & {
   characters: EntityTable<Character, 'id'>;
   tierLists: EntityTable<TierList, 'id'>;
   relationships: EntityTable<Relationship, 'id'>;
-  evidence: EntityTable<Evidence, 'id'>;
   images: EntityTable<ImageBlob, 'id'>;
   snapshots: EntityTable<Snapshot, 'id'>;
   snapshotData: EntityTable<SnapshotData, 'id'>;
@@ -141,6 +140,27 @@ db.version(5).stores({
   if (migrated || dropped) {
     console.info(`[db] snapshot schema v5: migrated ${migrated}, dropped ${dropped}`);
   }
+});
+
+// v6: evidence feature removed. Drop the `evidence` store and strip the
+// vestigial `evidenceIds` field from every relationship row so the schema
+// reflects the current domain model. Per the cleanup request, any evidence
+// records that happened to be in the user's DB are discarded outright — no
+// export file claimed to carry real evidence, and the user confirmed there
+// was nothing worth preserving.
+db.version(6).stores({
+  characters: 'id, name, tierListId, createdAt',
+  tierLists: 'id, name, createdAt',
+  relationships: 'id, superiorId, inferiorId, tierListId, [superiorId+inferiorId]',
+  evidence: null,
+  images: 'id, originalFilename',
+  snapshots: 'id, createdAt',
+  snapshotData: 'id',
+  meta: 'key',
+}).upgrade(async (tx) => {
+  await tx.table('relationships').toCollection().modify((rel) => {
+    delete (rel as { evidenceIds?: unknown }).evidenceIds;
+  });
 });
 
 export { db };

@@ -87,7 +87,6 @@ export async function syncPush(listIds?: string[]): Promise<{ pushed: number }> 
     // Export data scoped to this tier list
     const characters = await localDb.characters.where('tierListId').equals(tl.id).toArray();
     const relationships = await localDb.relationships.where('tierListId').equals(tl.id).toArray();
-    const evidence = await localDb.evidence.where('tierListId').equals(tl.id).toArray();
 
     // Get images for these characters
     const imageIds = characters.map((c) => c.imageId).filter((id): id is string => !!id);
@@ -108,7 +107,6 @@ export async function syncPush(listIds?: string[]): Promise<{ pushed: number }> 
       tierList: tl,
       characters,
       relationships,
-      evidence,
       images: serializedImages.filter(Boolean),
     };
 
@@ -135,17 +133,25 @@ export async function syncPull(): Promise<{ pulled: number }> {
       const full = await apiFetch(`/api/lists/${remote.id}`);
       const data = JSON.parse(full.data);
 
-      await localDb.transaction('rw', [localDb.tierLists, localDb.characters, localDb.relationships, localDb.evidence, localDb.images], async () => {
+      await localDb.transaction('rw', [localDb.tierLists, localDb.characters, localDb.relationships, localDb.images], async () => {
         // Clear existing data for this list
         await localDb.characters.where('tierListId').equals(remote.id).delete();
         await localDb.relationships.where('tierListId').equals(remote.id).delete();
-        await localDb.evidence.where('tierListId').equals(remote.id).delete();
 
-        // Import
+        // Import — strip the legacy evidenceIds field off any relationships
+        // coming from a pre-v6 server snapshot.
         await localDb.tierLists.put(data.tierList);
         if (data.characters?.length) await localDb.characters.bulkPut(data.characters);
-        if (data.relationships?.length) await localDb.relationships.bulkPut(data.relationships);
-        if (data.evidence?.length) await localDb.evidence.bulkPut(data.evidence);
+        if (data.relationships?.length) {
+          const cleaned = (data.relationships as Array<Record<string, unknown>>).map((r) => {
+            const copy = { ...r };
+            delete copy.evidenceIds;
+            return copy;
+          });
+          await localDb.relationships.bulkPut(
+            cleaned as unknown as Parameters<typeof localDb.relationships.bulkPut>[0],
+          );
+        }
 
         // Import images
         if (data.images) {
@@ -299,10 +305,6 @@ export function initAutoSync() {
   localDb.relationships.hook('creating', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
   localDb.relationships.hook('updating', (_mods, _pk, obj) => { markDirty(getListIdFrom(obj)); });
   localDb.relationships.hook('deleting', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
-
-  localDb.evidence.hook('creating', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
-  localDb.evidence.hook('updating', (_mods, _pk, obj) => { markDirty(getListIdFrom(obj)); });
-  localDb.evidence.hook('deleting', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
 
   window.addEventListener('blur', () => { lastBlurAt = Date.now(); });
   window.addEventListener('focus', () => {

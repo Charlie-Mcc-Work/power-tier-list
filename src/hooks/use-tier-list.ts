@@ -91,16 +91,11 @@ export async function deleteTierList(id: string): Promise<void> {
 
   await db.transaction(
     'rw',
-    [db.tierLists, db.characters, db.relationships, db.evidence, db.images],
+    [db.tierLists, db.characters, db.relationships, db.images],
     async () => {
       if (imageIdsToDelete.length > 0) await db.images.bulkDelete(imageIdsToDelete);
       await db.characters.where('tierListId').equals(id).delete();
-
-      // Delete all relationships and evidence belonging to this list
       await db.relationships.where('tierListId').equals(id).delete();
-      await db.evidence.where('tierListId').equals(id).delete();
-
-      // Delete the tier list itself
       await db.tierLists.delete(id);
     },
   );
