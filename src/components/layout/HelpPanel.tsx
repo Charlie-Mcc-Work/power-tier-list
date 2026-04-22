@@ -85,6 +85,15 @@ export function HelpPanel() {
               Equality rows are shown with the alphabetically-first name on the left so the
               sort order matches what you see.
             </p>
+            <p className="text-xs text-gray-400 mt-2">
+              The <span className="text-gray-300">Redundant</span> toggle next to the sort
+              dropdown filters the list down to relationships that are already implied by
+              another path through the graph — each one shows the chain that implies it
+              (e.g. <code className="text-amber-400/80">implied by: A &gt; B = C &gt; D</code>).
+              Use it to prune noise, but remember that deleting a redundant rel is a
+              judgment call: sometimes the direct statement carries context a derived chain
+              doesn't.
+            </p>
           </section>
 
           {/* Enforcement */}
