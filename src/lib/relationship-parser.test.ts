@@ -24,11 +24,16 @@ describe('parseChain — basic operators', () => {
     ]);
   });
 
-  it('parses equality as two non-strict pairs', () => {
-    expect(pairs(parseChain('Luffy = Zoro'))).toEqual([
-      { superiorName: 'Luffy', inferiorName: 'Zoro', strict: false },
-      { superiorName: 'Zoro', inferiorName: 'Luffy', strict: false },
-    ]);
+  it('rejects `=` with a helpful message pointing at >= / <=', () => {
+    const result = parseChain('Luffy = Zoro');
+    expect(isParseError(result)).toBe(true);
+    const msg = err(result);
+    expect(msg).toMatch(/no longer supported/i);
+    expect(msg).toMatch(/>=/);
+  });
+
+  it('rejects `=` even when embedded mid-chain', () => {
+    expect(isParseError(parseChain('A > B = C'))).toBe(true);
   });
 
   it('parses < by reversing operands', () => {

@@ -3,7 +3,7 @@ import { db } from '../db/database';
 import type { Relationship, Character } from '../types';
 import { resolveUnique } from '../lib/fuzzy-match';
 import { parseChain, isParseError, type ParsedPair } from '../lib/relationship-parser';
-import { buildGraph, findUnsatisfiableCycle } from '../lib/graph';
+import { buildGraph, detectCycles, findUnsatisfiableCycle } from '../lib/graph';
 import { maxChainLength, longestChainPath } from '../lib/enforce-constraints';
 import { getActiveTierListId } from './use-tier-list';
 import { useUIStore } from '../stores/ui-store';
@@ -37,12 +37,7 @@ export async function addRelationship(
   if (!graph.has(superiorId)) graph.set(superiorId, new Set());
   if (!graph.has(inferiorId)) graph.set(inferiorId, new Set());
 
-  const edgeStrictness = new Map<string, boolean>();
-  for (const rel of allRels) {
-    edgeStrictness.set(`${rel.superiorId}->${rel.inferiorId}`, rel.strict ?? false);
-  }
-
-  const cyclePath = findUnsatisfiableCycle(graph, edgeStrictness, superiorId, inferiorId, strict);
+  const cyclePath = findUnsatisfiableCycle(graph, superiorId, inferiorId);
   if (cyclePath) {
     const chars = await db.characters.bulkGet(cyclePath);
     const names = cyclePath.map((id, i) => chars[i]?.name ?? id);
@@ -69,27 +64,155 @@ export async function addRelationship(
 // produced by `=`) against the current graph PLUS previously-accepted pairs
 // in the same group — without writing anything until every pair in the
 // group is known to be safe.
+//
+// The state maintains the adjacency, strictness map, and longest-chain
+// level map *incrementally* — a 50-pair paste used to rebuild all of those
+// 50× per call; now each add just propagates from the newly-added edge.
 
 interface DryRunState {
-  rels: Array<{ superiorId: string; inferiorId: string; strict: boolean }>;
   byPair: Set<string>;
   charMap: Map<string, Character>;
+  adj: Map<string, Set<string>>;
+  edgeStrict: Map<string, boolean>;
+  /** Longest-chain depth ending at each node; level+1 = tiers needed for that tail. */
+  level: Map<string, number>;
+  /** Plain rel list, kept so overflow errors can reconstruct the offending chain. */
+  rels: Array<{ superiorId: string; inferiorId: string; strict: boolean }>;
+}
+
+function ensureNode(state: DryRunState, id: string) {
+  if (!state.adj.has(id)) {
+    state.adj.set(id, new Set());
+    state.level.set(id, 0);
+  }
 }
 
 function initDryRun(existing: Relationship[], characters: Character[]): DryRunState {
-  return {
-    rels: existing.map((r) => ({
-      superiorId: r.superiorId,
-      inferiorId: r.inferiorId,
-      strict: r.strict ?? false,
-    })),
-    byPair: new Set(existing.map((r) => `${r.superiorId}->${r.inferiorId}`)),
+  const state: DryRunState = {
+    byPair: new Set(),
     charMap: new Map(characters.map((c) => [c.id, c])),
+    adj: new Map(),
+    edgeStrict: new Map(),
+    level: new Map(),
+    rels: [],
+  };
+  for (const r of existing) {
+    const strict = r.strict ?? false;
+    ensureNode(state, r.superiorId);
+    ensureNode(state, r.inferiorId);
+    state.adj.get(r.superiorId)!.add(r.inferiorId);
+    state.edgeStrict.set(`${r.superiorId}->${r.inferiorId}`, strict);
+    state.rels.push({ superiorId: r.superiorId, inferiorId: r.inferiorId, strict });
+    state.byPair.add(`${r.superiorId}->${r.inferiorId}`);
+  }
+  // One-shot fixpoint to populate levels from existing edges.
+  const MAX = Math.max(100, state.adj.size * state.adj.size + 1);
+  let changed = true;
+  let iter = 0;
+  while (changed && iter < MAX) {
+    changed = false;
+    iter++;
+    for (const r of state.rels) {
+      const si = state.level.get(r.superiorId)!;
+      const ii = state.level.get(r.inferiorId)!;
+      const gap = r.strict ? 1 : 0;
+      if (si + gap > ii) {
+        state.level.set(r.inferiorId, si + gap);
+        changed = true;
+      }
+    }
+  }
+  return state;
+}
+
+function forkDryRun(state: DryRunState): DryRunState {
+  return {
+    byPair: new Set(state.byPair),
+    charMap: state.charMap,
+    adj: new Map([...state.adj].map(([k, v]) => [k, new Set(v)])),
+    edgeStrict: new Map(state.edgeStrict),
+    level: new Map(state.level),
+    rels: [...state.rels],
   };
 }
 
-function cloneDryRun(state: DryRunState): DryRunState {
-  return { rels: [...state.rels], byPair: new Set(state.byPair), charMap: state.charMap };
+function restoreDryRun(dst: DryRunState, src: DryRunState) {
+  dst.byPair = new Set(src.byPair);
+  dst.adj = new Map([...src.adj].map(([k, v]) => [k, new Set(v)]));
+  dst.edgeStrict = new Map(src.edgeStrict);
+  dst.level = new Map(src.level);
+  dst.rels = [...src.rels];
+}
+
+/** Find a strict cycle (SCC with a strict edge, or a strict self-loop). */
+function findStrictCycle(
+  rels: Array<{ superiorId: string; inferiorId: string; strict: boolean }>,
+): string[] | null {
+  for (const r of rels) {
+    if (r.superiorId === r.inferiorId && r.strict) return [r.superiorId];
+  }
+  const graph = buildGraph(
+    rels.map((r, i) => ({
+      id: `c-${i}`,
+      tierListId: '',
+      superiorId: r.superiorId,
+      inferiorId: r.inferiorId,
+      strict: r.strict,
+      createdAt: 0,
+    })),
+  );
+  const sccs = detectCycles(graph);
+  for (const scc of sccs) {
+    const set = new Set(scc);
+    const hasStrict = rels.some(
+      (r) => r.strict && set.has(r.superiorId) && set.has(r.inferiorId),
+    );
+    if (hasStrict) return scc;
+  }
+  return null;
+}
+
+function describeChainFailure(
+  state: DryRunState,
+  superiorId: string,
+  inferiorId: string,
+  strict: boolean,
+  tierCount: number,
+): string {
+  const allRelsPlain = [
+    ...state.rels,
+    { superiorId, inferiorId, strict },
+  ];
+  // Safety net: if the final state contains a strict cycle the chain-length
+  // fixpoint diverges and reports a nonsense number. Catch that explicitly.
+  const cycle = findStrictCycle(allRelsPlain);
+  if (cycle) {
+    const names = cycle.map((id) => state.charMap.get(id)?.name ?? id);
+    const loop = cycle.length === 1 ? `${names[0]} > ${names[0]}` : `${names.join(' → ')} → ${names[0]}`;
+    return `Creates an impossible cycle (some chain of "greater than" loops back on itself): ${loop}. Remove or weaken one of the relationships in that loop.`;
+  }
+
+  const allRels = allRelsPlain.map((r, i) => ({
+    id: `dry-${i}`,
+    tierListId: '',
+    superiorId: r.superiorId,
+    inferiorId: r.inferiorId,
+    strict: r.strict,
+    createdAt: 0,
+  }));
+  const needed = maxChainLength(allRels);
+  const path = longestChainPath(allRels);
+  const names = path.map((id) => state.charMap.get(id)?.name ?? id);
+  const relByPair = new Map<string, boolean>();
+  for (const r of allRels) {
+    relByPair.set(`${r.superiorId}->${r.inferiorId}`, r.strict);
+  }
+  let chainStr = names[0] ?? '';
+  for (let i = 1; i < path.length; i++) {
+    const op = relByPair.get(`${path[i - 1]}->${path[i]}`) ? '>' : '>=';
+    chainStr += ` ${op} ${names[i]}`;
+  }
+  return `Chain would need ${needed} tiers but the list only has ${tierCount}: ${chainStr}`;
 }
 
 function dryRunAdd(
@@ -102,19 +225,10 @@ function dryRunAdd(
   const key = `${superiorId}->${inferiorId}`;
   if (state.byPair.has(key)) return { ok: true, isNew: false };
 
-  // Build an adjacency map over the current dry-run state just for this check.
-  const graph = new Map<string, Set<string>>();
-  const edgeStrictness = new Map<string, boolean>();
-  for (const r of state.rels) {
-    if (!graph.has(r.superiorId)) graph.set(r.superiorId, new Set());
-    if (!graph.has(r.inferiorId)) graph.set(r.inferiorId, new Set());
-    graph.get(r.superiorId)!.add(r.inferiorId);
-    edgeStrictness.set(`${r.superiorId}->${r.inferiorId}`, r.strict);
-  }
-  if (!graph.has(superiorId)) graph.set(superiorId, new Set());
-  if (!graph.has(inferiorId)) graph.set(inferiorId, new Set());
+  ensureNode(state, superiorId);
+  ensureNode(state, inferiorId);
 
-  const cyclePath = findUnsatisfiableCycle(graph, edgeStrictness, superiorId, inferiorId, strict);
+  const cyclePath = findUnsatisfiableCycle(state.adj, superiorId, inferiorId);
   if (cyclePath) {
     const names = cyclePath.map((id) => state.charMap.get(id)?.name ?? id);
     return {
@@ -123,49 +237,77 @@ function dryRunAdd(
     };
   }
 
+  // Simulate the level propagation in a shadow map before committing.
+  // If the shadow detects overflow, we reject without touching state.
+  const gap = strict ? 1 : 0;
+  const supLevel = state.level.get(superiorId)!;
+  const curInfLevel = state.level.get(inferiorId)!;
+  const newInfLevel = Math.max(curInfLevel, supLevel + gap);
+
+  if (newInfLevel > tierCount - 1) {
+    return { ok: false, reason: describeChainFailure(state, superiorId, inferiorId, strict, tierCount) };
+  }
+
+  // Commit the edge + node updates first so adj/edgeStrict are consistent
+  // for any future adds in the same group. Overflow rollback handled below.
+  state.adj.get(superiorId)!.add(inferiorId);
+  state.edgeStrict.set(key, strict);
   state.rels.push({ superiorId, inferiorId, strict });
   state.byPair.add(key);
 
-  // Reject adds that would force a chain longer than the tier list can hold.
-  // Rebuild the check each call — cheap for normal sizes, and it catches
-  // chains that only become too long after several earlier adds in a bulk
-  // paste (e.g. A>B, B>C, C>D, D>E, E>F, F>G in a 6-tier list — only the
-  // last one tips it over, but we still want to name the 7-deep chain).
-  const asRels = state.rels.map((r, i) => ({
-    id: `dry-${i}`,
-    tierListId: '',
-    superiorId: r.superiorId,
-    inferiorId: r.inferiorId,
-    strict: r.strict,
-    createdAt: 0,
-  }));
-  const needed = maxChainLength(asRels);
-  if (needed > tierCount) {
-    // Roll back so the caller's state machine stays consistent.
-    state.rels.pop();
-    state.byPair.delete(key);
-
-    const path = longestChainPath(asRels);
-    const names = path.map((id) => state.charMap.get(id)?.name ?? id);
-    const relByPair = new Map<string, boolean>();
-    for (const r of state.rels) {
-      relByPair.set(`${r.superiorId}->${r.inferiorId}`, r.strict);
-    }
-    // The new edge we just popped isn't in state.rels any more — put it in
-    // the lookup so the chain string shows the right operator for it too.
-    relByPair.set(`${superiorId}->${inferiorId}`, strict);
-
-    let chainStr = names[0] ?? '';
-    for (let i = 1; i < path.length; i++) {
-      const op = relByPair.get(`${path[i - 1]}->${path[i]}`) ? '>' : '>=';
-      chainStr += ` ${op} ${names[i]}`;
-    }
-    return {
-      ok: false,
-      reason: `Chain would need ${needed} tiers but the list only has ${tierCount}: ${chainStr}`,
-    };
+  if (newInfLevel === curInfLevel) {
+    // New edge slack enough that nothing shifts — no BFS needed.
+    return { ok: true, isNew: true };
   }
 
+  // Propagate from inferiorId; track level changes in a shadow and only
+  // commit them back if no overflow. BFS terminates because non-strict
+  // cycles have gap 0 (no growth) and strict cycles were rejected above.
+  // The iteration cap is a safety net — if the cycle check ever misses a
+  // case (as it did before v2 of findUnsatisfiableCycle), we still exit
+  // cleanly instead of spinning.
+  const shadow = new Map<string, number>();
+  shadow.set(inferiorId, newInfLevel);
+  const queue: string[] = [inferiorId];
+  const MAX_STEPS = Math.max(1000, state.adj.size * tierCount * 2);
+  let steps = 0;
+
+  function rollback() {
+    state.adj.get(superiorId)!.delete(inferiorId);
+    state.edgeStrict.delete(key);
+    state.rels.pop();
+    state.byPair.delete(key);
+  }
+
+  while (queue.length > 0) {
+    if (++steps > MAX_STEPS) {
+      rollback();
+      return {
+        ok: false,
+        reason: describeChainFailure(state, superiorId, inferiorId, strict, tierCount),
+      };
+    }
+    const node = queue.shift()!;
+    const nodeLevel = shadow.get(node)!;
+    for (const child of state.adj.get(node) ?? []) {
+      const edgeGap = state.edgeStrict.get(`${node}->${child}`) ? 1 : 0;
+      const needed = nodeLevel + edgeGap;
+      const existing = shadow.get(child) ?? state.level.get(child)!;
+      if (needed > existing) {
+        if (needed > tierCount - 1) {
+          rollback();
+          return {
+            ok: false,
+            reason: describeChainFailure(state, superiorId, inferiorId, strict, tierCount),
+          };
+        }
+        shadow.set(child, needed);
+        queue.push(child);
+      }
+    }
+  }
+
+  for (const [id, lvl] of shadow) state.level.set(id, lvl);
   return { ok: true, isNew: true };
 }
 
@@ -263,8 +405,8 @@ export async function addRelationshipsFromChain(
       continue;
     }
 
-    // Dry-run the group on a forked state so partial failure doesn't leak.
-    const snapshot = cloneDryRun(dryState);
+    // Dry-run the group with a saved fork so partial failure rolls back cleanly.
+    const snapshot = forkDryRun(dryState);
     let failure: string | null = null;
     const groupAdds: PendingAdd[] = [];
     for (const r of resolved) {
@@ -276,9 +418,7 @@ export async function addRelationshipsFromChain(
     }
 
     if (failure) {
-      // Roll back the dry-state to what it was before this group.
-      dryState.rels = snapshot.rels;
-      dryState.byPair = snapshot.byPair;
+      restoreDryRun(dryState, snapshot);
       if (group.length === 2) {
         const a = resolved[0].sup.name;
         const b = resolved[0].inf.name;

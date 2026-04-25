@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import { useUIStore, CARD_SIZES } from '../../stores/ui-store';
 import { useCharacters } from '../../hooks/use-characters';
 import { useTierList } from '../../hooks/use-tier-list';
 import { useImage } from '../../hooks/use-image';
 import type { Character, TierDefinition } from '../../types';
 import { DEFAULT_TIER_DEFS } from '../../types';
+import { log } from '../../lib/logger';
 
 function PresentationCard({ character }: { character: Character }) {
   const imageUrl = useImage(character.imageId);
@@ -75,33 +76,39 @@ export function PresentationView() {
   const setPresenting = useUIStore((s) => s.setPresenting);
   const cardSize = useUIStore((s) => s.cardSize);
   const setCardSize = useUIStore((s) => s.setCardSize);
-  const tierListRef = useRef<HTMLDivElement>(null);
-  const [saving, setSaving] = useState(false);
-
-  async function handleSaveImage() {
-    if (!tierListRef.current || saving) return;
-    setSaving(true);
-    try {
-      const canvas = await html2canvas(tierListRef.current, {
-        backgroundColor: '#0d0d0d',
-        scale: 2,
-        useCORS: true,
-      });
-      const link = document.createElement('a');
-      link.download = `${tierList?.name ?? 'tier-list'}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-    } catch {
-      // ignore
-    }
-    setSaving(false);
-  }
   const characters = useCharacters();
   const tierList = useTierList();
+  const tierListRef = useRef<HTMLDivElement>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const tierDefs = tierList?.tierDefs ?? DEFAULT_TIER_DEFS;
   const assignments = tierList?.tiers ?? [];
   const charMap = new Map(characters.map((c) => [c.id, c]));
+
+  async function handleSaveImage() {
+    if (!tierListRef.current || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const dataUrl = await toPng(tierListRef.current, {
+        backgroundColor: '#0d0d0d',
+        pixelRatio: 2,
+        cacheBust: true,
+      });
+      const link = document.createElement('a');
+      link.download = `${tierList?.name ?? 'tier-list'}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error('presentation', 'save image failed', { error: msg });
+      setSaveError(msg);
+      setTimeout(() => setSaveError(null), 5000);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   // Escape to exit
   useEffect(() => {
@@ -162,6 +169,12 @@ export function PresentationView() {
           </button>
         </div>
       </div>
+
+      {saveError && (
+        <div className="px-4 py-2 bg-red-900/20 border-b border-red-700/50 text-xs text-red-300 shrink-0">
+          Couldn't save image: {saveError}
+        </div>
+      )}
 
       {/* Full tier list */}
       <div className="flex-1 overflow-auto p-4">

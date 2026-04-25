@@ -57,14 +57,36 @@ describe('findInconsistencies', () => {
     expect(result[0].message).toContain('same tier');
   });
 
-  it('does NOT flag A >= B in same tier', () => {
+  it('does NOT flag A >= B when both in same tier and A is positioned before B', () => {
     const result = findInconsistencies(
-      [at('A', 'B'), at('B', 'B')],
+      [at('A', 'B', 0), at('B', 'B', 1)],
       [rel('A', 'B', false)],
       [ch('A'), ch('B')],
       TIERS,
     );
     expect(result).toEqual([]);
+  });
+
+  it('flags A >= B when they are in different tiers', () => {
+    const result = findInconsistencies(
+      [at('A', 'S'), at('B', 'B')],
+      [rel('A', 'B', false)],
+      [ch('A'), ch('B')],
+      TIERS,
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].message).toMatch(/different tiers/i);
+  });
+
+  it('flags A >= B when A is positioned after B within the same tier', () => {
+    const result = findInconsistencies(
+      [at('A', 'B', 1), at('B', 'B', 0)],
+      [rel('A', 'B', false)],
+      [ch('A'), ch('B')],
+      TIERS,
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].message).toMatch(/positioned after/i);
   });
 
   it('skips relationships where one endpoint is unranked', () => {
@@ -100,13 +122,17 @@ describe('findInconsistencies', () => {
     expect(result).toEqual([]);
   });
 
-  it('does NOT flag all-non-strict cycles (equality groups)', () => {
+  it('flags all-non-strict cycles (unsatisfiable under the new positional model)', () => {
+    // A >= B AND B >= A would force A before B AND B before A simultaneously
+    // — impossible. The cycle check at add-time rejects this, but if stale
+    // data holds such a pair, the inconsistency banner now surfaces it.
     const result = findInconsistencies(
       [at('A', 'S'), at('B', 'S')],
       [rel('A', 'B', false), rel('B', 'A', false)],
       [ch('A'), ch('B')],
       TIERS,
     );
-    expect(result.filter((r) => r.type === 'cycle')).toEqual([]);
+    const cycleIssue = result.find((r) => r.type === 'cycle');
+    expect(cycleIssue).toBeDefined();
   });
 });

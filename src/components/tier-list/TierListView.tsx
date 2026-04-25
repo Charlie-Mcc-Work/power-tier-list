@@ -17,7 +17,6 @@ import { UnrankedPool } from './UnrankedPool';
 import { CharacterCard } from './CharacterCard';
 import { ImageUploader } from './ImageUploader';
 import { InconsistencyBanner } from './InconsistencyBanner';
-import { TierManager } from './TierManager';
 import { useCharacters } from '../../hooks/use-characters';
 import { useTierList, updateTierAssignments } from '../../hooks/use-tier-list';
 import { useRelationships } from '../../hooks/use-relationships';
@@ -37,6 +36,7 @@ export function TierListView() {
   const [dragStartContainer, setDragStartContainer] = useState<string | null>(null);
   const [dragPreview, setDragPreview] = useState<TierAssignment[] | null>(null);
   const [hoveredTierId, setHoveredTierId] = useState<string | null>(null);
+  const [autoEditTierId, setAutoEditTierId] = useState<string | null>(null);
   const dragOverBusy = useRef(false);
   const viewRef = useRef<HTMLDivElement>(null);
 
@@ -342,13 +342,19 @@ export function TierListView() {
         onDragEnd={handleDragEnd}
       >
         <div data-tier-container className="rounded-lg overflow-hidden border border-gray-700 bg-[#141414]">
-          {tierDefs.map((td) => (
+          {tierDefs.map((td, idx) => (
             <div key={td.id} data-tier-id={td.id}>
               <TierRow
                 tierDef={td}
                 characters={getCharactersForTier(td.id)}
                 characterIds={getCharacterIdsForTier(td.id)}
                 highlighted={hoveredTierId === td.id && activeId != null}
+                index={idx}
+                totalTiers={tierDefs.length}
+                tierIds={tierIds}
+                autoEdit={autoEditTierId === td.id}
+                onAutoEditHandled={() => setAutoEditTierId(null)}
+                onInsertedTier={(newId) => setAutoEditTierId(newId)}
               />
             </div>
           ))}
@@ -367,7 +373,6 @@ export function TierListView() {
       </DndContext>
 
       <ImageUploader />
-      <TierManager tierDefs={tierDefs} />
     </div>
   );
 }

@@ -15,6 +15,7 @@ const MAX_MEM = 200;
 const DB_NAME = 'PowerTierListLogs';
 const STORE_NAME = 'logs';
 const MAX_PERSISTED = 500;
+const FLUSH_INTERVAL_MS = 2000;
 let dbReady: IDBDatabase | null = null;
 
 function openDB(): Promise<IDBDatabase> {
@@ -36,33 +37,66 @@ openDB()
   .then((db) => { dbReady = db; })
   .catch((err) => console.warn('[logger] IndexedDB unavailable:', err));
 
-function persistEntry(entry: LogEntry) {
-  if (!dbReady) return;
+// Writes are batched: a burst of errors produces one transaction per flush
+// interval instead of one transaction per log call. Pruning runs at the end
+// of a flush rather than after every single write.
+const pendingWrites: LogEntry[] = [];
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleFlush() {
+  if (flushTimer != null) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    flushPending();
+  }, FLUSH_INTERVAL_MS);
+}
+
+function flushPending() {
+  if (!dbReady || pendingWrites.length === 0) return;
+  const batch = pendingWrites.splice(0, pendingWrites.length);
   try {
     const tx = dbReady.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    store.put(entry);
+    for (const entry of batch) store.put(entry);
 
-    // Prune old entries: count and delete oldest if over limit
-    const countReq = store.count();
-    countReq.onsuccess = () => {
-      if (countReq.result > MAX_PERSISTED) {
-        const cursorReq = store.openCursor();
-        let toDelete = countReq.result - MAX_PERSISTED;
-        cursorReq.onsuccess = () => {
-          const cursor = cursorReq.result;
-          if (cursor && toDelete > 0) {
-            cursor.delete();
-            toDelete--;
-            cursor.continue();
-          }
-        };
-      }
+    tx.oncomplete = () => {
+      // Prune once per flush instead of per entry.
+      if (!dbReady) return;
+      const ptx = dbReady.transaction(STORE_NAME, 'readwrite');
+      const pstore = ptx.objectStore(STORE_NAME);
+      const countReq = pstore.count();
+      countReq.onsuccess = () => {
+        if (countReq.result > MAX_PERSISTED) {
+          let toDelete = countReq.result - MAX_PERSISTED;
+          const cursorReq = pstore.openCursor();
+          cursorReq.onsuccess = () => {
+            const cursor = cursorReq.result;
+            if (cursor && toDelete > 0) {
+              cursor.delete();
+              toDelete--;
+              cursor.continue();
+            }
+          };
+        }
+      };
     };
   } catch (err) {
-    // Don't let logging failures break the app — but don't go fully silent either.
-    console.warn('[logger] persist failed:', err);
+    console.warn('[logger] flush failed:', err);
   }
+}
+
+// Flush when the tab is hidden or being closed so entries from the final
+// error burst still make it to disk.
+if (typeof window !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPending();
+  });
+  window.addEventListener('pagehide', () => flushPending());
+}
+
+function persistEntry(entry: LogEntry) {
+  pendingWrites.push(entry);
+  scheduleFlush();
 }
 
 function add(level: LogEntry['level'], source: string, message: string, data?: unknown) {
@@ -100,6 +134,8 @@ async function getPersistedEntries(): Promise<LogEntry[]> {
       return [];
     }
   }
+  // Flush any in-flight writes so the history reflects recent events.
+  flushPending();
   return new Promise((resolve) => {
     try {
       const tx = dbReady!.transaction(STORE_NAME, 'readonly');
@@ -118,6 +154,7 @@ async function getPersistedEntries(): Promise<LogEntry[]> {
 
 async function clearPersisted(): Promise<void> {
   if (!dbReady) return;
+  pendingWrites.length = 0;
   try {
     const tx = dbReady.transaction(STORE_NAME, 'readwrite');
     tx.objectStore(STORE_NAME).clear();

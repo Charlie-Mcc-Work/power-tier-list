@@ -18,6 +18,8 @@ export function isParseError(result: ParseResult): result is ParseError {
   return 'error' in result;
 }
 
+// `=` is still recognized by the tokenizer so we can return a friendly error
+// message — it's no longer a valid operator.
 export const OP_REGEX = /(>=|<=|>|<|=)/;
 
 /**
@@ -26,17 +28,15 @@ export const OP_REGEX = /(>=|<=|>|<|=)/;
  *   Chains:    "A > B > C > D"      → A>B, B>C, C>D
  *   Fan-out:   "X > A, B, C"        → X>A, X>B, X>C
  *   Combined:  "X > A, B > Z"       → X>A, X>B, A>Z, B>Z
- *   Equality:  "A = B"              → A>=B, B>=A
  *
  * Comma-separated names in any position create a cartesian product
  * with adjacent segments across the operator.
  *
  * Operators:
- *   >   strictly stronger (must be in a higher tier)
- *   >=  at least as strong (same tier OK)
- *   =   equal (same tier — creates two >= relationships)
- *   <=  at most as strong (reverse of >=)
- *   <   strictly weaker (reverse of >)
+ *   >   strictly stronger (must be in a strictly higher tier)
+ *   >=  same tier; A is positioned before B within that tier
+ *   <=  reverse of >= (shorthand for B >= A)
+ *   <   reverse of > (shorthand for B > A)
  */
 export function parseChain(input: string): ParseResult {
   const trimmed = input.trim();
@@ -59,6 +59,13 @@ export function parseChain(input: string): ParseResult {
       return { error: `Missing character name around "${op}"` };
     }
 
+    if (op === '=') {
+      return {
+        error:
+          '"=" is no longer supported — use ">=" or "<=" (each puts the two characters in the same tier, with a defined within-tier order).',
+      };
+    }
+
     for (const left of leftNames) {
       for (const right of rightNames) {
         switch (op) {
@@ -67,10 +74,6 @@ export function parseChain(input: string): ParseResult {
             break;
           case '>=':
             pairs.push({ superiorName: left, inferiorName: right, strict: false });
-            break;
-          case '=':
-            pairs.push({ superiorName: left, inferiorName: right, strict: false });
-            pairs.push({ superiorName: right, inferiorName: left, strict: false });
             break;
           case '<=':
             pairs.push({ superiorName: right, inferiorName: left, strict: false });

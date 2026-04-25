@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildGraph,
-  topologicalSort,
   detectCycles,
   wouldCreateCycle,
   findUnsatisfiableCycle,
-  deriveLayeredRanking,
 } from './graph';
 import type { Relationship } from '../types';
 
@@ -36,31 +34,6 @@ describe('buildGraph', () => {
   it('deduplicates parallel edges', () => {
     const g = buildGraph([rel('A', 'B'), rel('A', 'B', false)]);
     expect(g.get('A')!.size).toBe(1);
-  });
-});
-
-describe('topologicalSort', () => {
-  it('returns nodes in topological order for a DAG', () => {
-    const g = buildGraph([rel('A', 'B'), rel('B', 'C')]);
-    const sorted = topologicalSort(g);
-    expect(sorted).not.toBeNull();
-    expect(sorted!.indexOf('A')).toBeLessThan(sorted!.indexOf('B'));
-    expect(sorted!.indexOf('B')).toBeLessThan(sorted!.indexOf('C'));
-  });
-
-  it('returns null when a cycle exists', () => {
-    const g = buildGraph([rel('A', 'B'), rel('B', 'A')]);
-    expect(topologicalSort(g)).toBeNull();
-  });
-
-  it('handles disconnected components', () => {
-    const g = buildGraph([rel('A', 'B'), rel('C', 'D')]);
-    const sorted = topologicalSort(g);
-    expect(sorted).toHaveLength(4);
-  });
-
-  it('returns empty array for empty graph', () => {
-    expect(topologicalSort(buildGraph([]))).toEqual([]);
   });
 });
 
@@ -127,58 +100,38 @@ describe('wouldCreateCycle', () => {
 describe('findUnsatisfiableCycle', () => {
   it('returns null when no cycle would form', () => {
     const g = buildGraph([rel('A', 'B')]);
-    const result = findUnsatisfiableCycle(g, new Map(), 'A', 'C', true);
-    expect(result).toBeNull();
+    expect(findUnsatisfiableCycle(g, 'A', 'C')).toBeNull();
   });
 
   it('returns the cycle path when a strict edge closes a cycle', () => {
-    const rels = [rel('A', 'B'), rel('B', 'C')];
-    const g = buildGraph(rels);
-    const strictness = new Map(rels.map((r) => [`${r.superiorId}->${r.inferiorId}`, r.strict]));
-    // Adding C > A (strict) closes A > B > C > A — unsatisfiable.
-    const result = findUnsatisfiableCycle(g, strictness, 'C', 'A', true);
+    const g = buildGraph([rel('A', 'B'), rel('B', 'C')]);
+    // Adding C > A closes A > B > C > A — unsatisfiable.
+    const result = findUnsatisfiableCycle(g, 'C', 'A');
     expect(result).not.toBeNull();
     expect(result).toContain('A');
     expect(result).toContain('B');
     expect(result).toContain('C');
   });
 
-  it('allows an all-non-strict cycle (means "same tier")', () => {
-    const rels = [rel('A', 'B', false), rel('B', 'C', false)];
-    const g = buildGraph(rels);
-    const strictness = new Map(rels.map((r) => [`${r.superiorId}->${r.inferiorId}`, r.strict]));
-    // Adding C >= A (non-strict) to all-non-strict cycle is satisfiable.
-    const result = findUnsatisfiableCycle(g, strictness, 'C', 'A', false);
-    expect(result).toBeNull();
+  it('rejects an all-non-strict cycle (would require A before B AND B before A)', () => {
+    // Under the new semantics, `>=` enforces positional order inside a
+    // tier. A cycle A >= B >= C >= A forces A before B before C before A —
+    // impossible.
+    const g = buildGraph([rel('A', 'B', false), rel('B', 'C', false)]);
+    expect(findUnsatisfiableCycle(g, 'C', 'A')).not.toBeNull();
   });
 
   it('blocks a non-strict edge when the cycle contains a strict edge', () => {
-    const rels = [rel('A', 'B', true), rel('B', 'C', false)]; // A > B, B >= C
-    const g = buildGraph(rels);
-    const strictness = new Map(rels.map((r) => [`${r.superiorId}->${r.inferiorId}`, r.strict]));
-    // Adding C >= A — closes A > B >= C >= A which has a strict edge → unsatisfiable.
-    const result = findUnsatisfiableCycle(g, strictness, 'C', 'A', false);
-    expect(result).not.toBeNull();
+    const g = buildGraph([rel('A', 'B', true), rel('B', 'C', false)]);
+    // Adding C >= A closes a cycle — unsatisfiable regardless of the mix.
+    expect(findUnsatisfiableCycle(g, 'C', 'A')).not.toBeNull();
+  });
+
+  it('rejects the bidirectional-non-strict pair (would-be former equality)', () => {
+    // Adding B >= A on top of an existing A >= B used to be an "equality"
+    // (allowed). Now it's a 2-node cycle with contradictory position order.
+    const g = buildGraph([rel('A', 'B', false)]);
+    expect(findUnsatisfiableCycle(g, 'B', 'A')).not.toBeNull();
   });
 });
 
-describe('deriveLayeredRanking', () => {
-  it('returns null on cycle', () => {
-    const g = buildGraph([rel('A', 'B'), rel('B', 'A')]);
-    expect(deriveLayeredRanking(g)).toBeNull();
-  });
-
-  it('places source nodes at layer 0', () => {
-    const g = buildGraph([rel('A', 'B'), rel('B', 'C')]);
-    const layers = deriveLayeredRanking(g)!;
-    expect(layers.get(0)).toEqual(['A']);
-    expect(layers.get(2)).toEqual(['C']);
-  });
-
-  it('handles wide DAGs (siblings at same layer)', () => {
-    const g = buildGraph([rel('A', 'B'), rel('A', 'C')]);
-    const layers = deriveLayeredRanking(g)!;
-    expect(layers.get(0)).toEqual(['A']);
-    expect(layers.get(1)!.sort()).toEqual(['B', 'C']);
-  });
-});

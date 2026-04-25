@@ -261,17 +261,17 @@ describe('enforceAfterMove — cross-dependency stress tests', () => {
     }
   });
 
-  it('non-strict chain: A >= B >= C — all can stay in same tier after move', () => {
-    // A:B, B:B, C:B. Move A to A (idx 1). B and C can stay at B (non-strict allows ≤).
+  it('non-strict chain: A >= B >= C — all follow A to the new tier', () => {
+    // A:B, B:B, C:B. Move A to A (idx 1). Under the new semantics, >= forces
+    // same tier, so B and C must follow A to tier A.
     const initial = [at('A', 'B'), at('B', 'B'), at('C', 'B')];
     const rels = [rel('A', 'B', false), rel('B', 'C', false)];
     const result = enforceAfterMove(initial, rels, 'A', 'A', TIERS);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(tierOf(result.assignments, 'A')).toBe('A');
-      // B and C don't need to move — they're still at-or-below A.
-      expect(tierOf(result.assignments, 'B')).toBe('B');
-      expect(tierOf(result.assignments, 'C')).toBe('B');
+      expect(tierOf(result.assignments, 'B')).toBe('A');
+      expect(tierOf(result.assignments, 'C')).toBe('A');
     }
   });
 
@@ -346,13 +346,84 @@ describe('enforceWithinTierOrder', () => {
     expect(order).toEqual(['C', 'D', 'A']);
   });
 
-  it('handles equality cycles (A=B) by preserving existing order', () => {
-    // A >= B and B >= A — equality. Cycle in the within-tier graph.
-    // Should fall through to "remaining" branch and use position.
+  it('falls back to position-order when stale cycles persist in stored data', () => {
+    // Under the new model A >= B combined with B >= A is unsatisfiable and
+    // the add-time cycle check rejects it. If somehow stale data holds both
+    // (legacy files, imports), enforceWithinTierOrder must not hang — it
+    // falls back to position-order for the cycle members.
     const initial = [at('A', 'B', 0), at('B', 'B', 1)];
     const rels = [rel('A', 'B', false), rel('B', 'A', false)];
     const result = enforceWithinTierOrder(initial, rels);
     expect(result.filter((a) => a.tier === 'B')).toHaveLength(2);
+  });
+
+  it('orders a chain A,B before C within a tier (no equality needed)', () => {
+    // A >= B, A >= C (both same tier as A). Expected: A first, then B and C
+    // (their relative order determined by their drag positions).
+    const initial = [at('A', 'B', 2), at('B', 'B', 1), at('C', 'B', 0)];
+    const rels = [rel('A', 'B', false), rel('A', 'C', false)];
+    const result = enforceWithinTierOrder(initial, rels);
+    const order = result
+      .filter((a) => a.tier === 'B')
+      .sort((x, y) => x.position - y.position)
+      .map((a) => a.characterId);
+    expect(order.indexOf('A')).toBeLessThan(order.indexOf('B'));
+    expect(order.indexOf('A')).toBeLessThan(order.indexOf('C'));
+  });
+
+  it('reorders superior in front of inferior even when inferior is first by position', () => {
+    // Regression: "Hiromi <= Suguru" stores superiorId=Suguru, inferiorId=Hiromi.
+    // If the user has Hiromi at position 0 and Suguru at position 1 in the
+    // same tier, enforceWithinTierOrder must swap them: Suguru should go to
+    // pos 0 because Suguru >= Hiromi. Per the user report this was showing
+    // Hiromi first even after Compact.
+    const initial = [at('Hiromi', 'C', 0), at('Suguru', 'C', 1)];
+    const rels = [rel('Suguru', 'Hiromi', false)];
+    const result = enforceWithinTierOrder(initial, rels);
+    const order = result
+      .filter((a) => a.tier === 'C')
+      .sort((x, y) => x.position - y.position)
+      .map((a) => a.characterId);
+    expect(order).toEqual(['Suguru', 'Hiromi']);
+  });
+
+  it('same reorder works inside a tier with many unrelated characters', () => {
+    // Surrounded by chars with no relationships — those should keep their
+    // relative order, and Suguru/Hiromi must still be sorted correctly.
+    const initial = [
+      at('Gojo', 'C', 0),
+      at('Hiromi', 'C', 1),
+      at('Nanami', 'C', 2),
+      at('Suguru', 'C', 3),
+      at('Yuji', 'C', 4),
+    ];
+    const rels = [rel('Suguru', 'Hiromi', false)];
+    const result = enforceWithinTierOrder(initial, rels);
+    const order = result
+      .filter((a) => a.tier === 'C')
+      .sort((x, y) => x.position - y.position)
+      .map((a) => a.characterId);
+    expect(order.indexOf('Suguru')).toBeLessThan(order.indexOf('Hiromi'));
+  });
+
+  it('orders a fan-out A>=B, A>=D, A>=C correctly', () => {
+    // A >= B, A >= C, A >= D — A must be first; the other three keep their
+    // drag order as the position tiebreaker.
+    const initial = [at('C', 'B', 0), at('B', 'B', 1), at('D', 'B', 2), at('A', 'B', 3)];
+    const rels = [
+      rel('A', 'B', false),
+      rel('A', 'C', false),
+      rel('A', 'D', false),
+    ];
+    const result = enforceWithinTierOrder(initial, rels);
+    const order = result
+      .filter((a) => a.tier === 'B')
+      .sort((x, y) => x.position - y.position)
+      .map((a) => a.characterId);
+    expect(order[0]).toBe('A');
+    expect(order.indexOf('B')).toBeGreaterThan(order.indexOf('A'));
+    expect(order.indexOf('C')).toBeGreaterThan(order.indexOf('A'));
+    expect(order.indexOf('D')).toBeGreaterThan(order.indexOf('A'));
   });
 });
 
@@ -452,6 +523,24 @@ describe('compactUpward', () => {
     const result = compactUpward(initial, rels, TIERS);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.movedCount).toBe(0);
+  });
+
+  it('reorders superior before inferior even when both already at top tier', () => {
+    // Regression for the Hiromi/Suguru report: both already in S, Hiromi
+    // sitting at position 0 (visually above Suguru) despite Suguru >= Hiromi.
+    // Compact must leave tiers alone (no tier moves) but still swap the
+    // within-tier positions.
+    const initial = [at('Hiromi', 'S', 0), at('Suguru', 'S', 1)];
+    const rels = [rel('Suguru', 'Hiromi', false)];
+    const result = compactUpward(initial, rels, TIERS);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const order = result.assignments
+        .filter((a) => a.tier === 'S')
+        .sort((x, y) => x.position - y.position)
+        .map((a) => a.characterId);
+      expect(order).toEqual(['Suguru', 'Hiromi']);
+    }
   });
 });
 

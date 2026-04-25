@@ -27,6 +27,9 @@ interface UIState {
   helpOpen: boolean;
   snapshotsOpen: boolean;
   syncOpen: boolean;
+  copyTextOpen: boolean;
+  /** Which filter is active in the Relationships panel. */
+  relationshipsFilter: 'all' | 'redundant' | 'contradictions';
   navigateHome: () => void;
   openTierList: (id: string) => void;
   setActiveView: (view: AppView) => void;
@@ -41,6 +44,8 @@ interface UIState {
   setHelpOpen: (v: boolean) => void;
   setSnapshotsOpen: (v: boolean) => void;
   setSyncOpen: (v: boolean) => void;
+  setCopyTextOpen: (v: boolean) => void;
+  setRelationshipsFilter: (filter: 'all' | 'redundant' | 'contradictions') => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -58,6 +63,8 @@ export const useUIStore = create<UIState>((set) => ({
   helpOpen: false,
   snapshotsOpen: false,
   syncOpen: false,
+  copyTextOpen: false,
+  relationshipsFilter: 'all',
   navigateHome: () => set({ page: 'home', activeTierListId: null, selectedCharacterId: null }),
   openTierList: (id) => set({ page: 'editor', activeTierListId: id, selectedCharacterId: null }),
   setActiveView: (view) => set({ activeView: view }),
@@ -72,4 +79,6 @@ export const useUIStore = create<UIState>((set) => ({
   setHelpOpen: (v) => set({ helpOpen: v }),
   setSnapshotsOpen: (v) => set({ snapshotsOpen: v }),
   setSyncOpen: (v) => set({ syncOpen: v }),
+  setCopyTextOpen: (v) => set({ copyTextOpen: v }),
+  setRelationshipsFilter: (filter) => set({ relationshipsFilter: filter }),
 }));

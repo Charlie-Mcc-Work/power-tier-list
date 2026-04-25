@@ -176,7 +176,7 @@ export async function enforceAndAutoPlace(): Promise<void> {
  * error if any chain is longer than the tier list.
  */
 export async function compactTierList(): Promise<
-  { ok: true; moved: number } | { ok: false; reason: string }
+  { ok: true; moved: number; reordered: number } | { ok: false; reason: string }
 > {
   const id = getActiveTierListId();
   const [relationships, tierList, characters] = await Promise.all([
@@ -192,21 +192,49 @@ export async function compactTierList(): Promise<
   const result = compactUpward(tierList.tiers, relationships, tierIds, charNames);
   if (!result.ok) return { ok: false, reason: result.reason };
 
-  if (result.movedCount === 0) return { ok: true, moved: 0 };
+  const origByChar = new Map(tierList.tiers.map((a) => [a.characterId, a]));
+  let reordered = 0;
+  for (const a of result.assignments) {
+    const orig = origByChar.get(a.characterId);
+    if (orig && orig.tier === a.tier && orig.position !== a.position) reordered++;
+  }
+
+  if (result.movedCount === 0 && reordered === 0) {
+    return { ok: true, moved: 0, reordered: 0 };
+  }
 
   undoManager.push(tierList.tiers, 'drag');
   await updateTierAssignments(result.assignments);
-  return { ok: true, moved: result.movedCount };
+  return { ok: true, moved: result.movedCount, reordered };
 }
 
 // ── Tier definition management ──
 
-export async function addTierDef(name: string, color: string): Promise<void> {
+export async function addTierDef(name: string, color: string): Promise<string> {
   const tierList = await ensureTierList();
   const tierDefs = [...(tierList.tierDefs ?? DEFAULT_TIER_DEFS)];
   const id = crypto.randomUUID();
   tierDefs.push({ id, name, color });
   await db.tierLists.update(getActiveTierListId(), { tierDefs, updatedAt: Date.now() });
+  return id;
+}
+
+/**
+ * Insert a new tier at a specific index. Existing tiers at and after the
+ * index shift down. Index is clamped to [0, tierDefs.length].
+ */
+export async function insertTierDefAt(
+  index: number,
+  name: string,
+  color: string,
+): Promise<string> {
+  const tierList = await ensureTierList();
+  const tierDefs = [...(tierList.tierDefs ?? DEFAULT_TIER_DEFS)];
+  const id = crypto.randomUUID();
+  const clamped = Math.max(0, Math.min(index, tierDefs.length));
+  tierDefs.splice(clamped, 0, { id, name, color });
+  await db.tierLists.update(getActiveTierListId(), { tierDefs, updatedAt: Date.now() });
+  return id;
 }
 
 export async function removeTierDef(tierId: string): Promise<void> {

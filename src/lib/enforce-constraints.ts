@@ -1,5 +1,6 @@
 import type { Relationship, TierAssignment } from '../types';
 import { log } from './logger';
+import { detectCycles } from './graph';
 
 function toIdx(tierId: string, tierIds: string[]): number {
   const idx = tierIds.indexOf(tierId);
@@ -10,34 +11,245 @@ function toTierId(idx: number, tierIds: string[]): string {
   return tierIds[Math.max(0, Math.min(idx, maxIdx))];
 }
 
-interface Edge {
-  strict: boolean;
+// ──────────────────────────────────────────────────────────────────────────
+// Shared constraint solver
+//
+// The model:
+//   `A > B`  → tier[A] + 1 <= tier[B]     (A one or more tiers above B)
+//   `A >= B` → tier[A]     == tier[B]     (same tier, A before B in position)
+//
+// Non-strict edges partition characters into equivalence classes (via
+// union-find). Every class has a single tier; strict edges cascade between
+// classes. A strict edge *within* one class is an inconsistency (A > B but
+// A and B are forced to share a tier) — surfaced as a hard error.
+// ──────────────────────────────────────────────────────────────────────────
+
+type Constraint = { superiorId: string; inferiorId: string; strict: boolean };
+
+interface SolveResult {
+  tierMap: Map<string, number>;
+  find: (x: string) => string;
+  /** Set when constraints couldn't be satisfied; the tierMap is best-effort. */
+  error?: string;
 }
 
-function buildGraphPair(relationships: Relationship[]) {
-  const fwd = new Map<string, Map<string, Edge>>(); // superior -> {inferior -> edge}
-  const rev = new Map<string, Map<string, Edge>>(); // inferior -> {superior -> edge}
-  for (const rel of relationships) {
-    const strict = rel.strict ?? false;
-    if (!fwd.has(rel.superiorId)) fwd.set(rel.superiorId, new Map());
-    fwd.get(rel.superiorId)!.set(rel.inferiorId, { strict });
-    if (!rev.has(rel.inferiorId)) rev.set(rel.inferiorId, new Map());
-    rev.get(rel.inferiorId)!.set(rel.superiorId, { strict });
+interface SolveOptions {
+  /** When a strict edge would push past the tier bounds, clamp instead of failing. */
+  clampOverflow?: boolean;
+}
+
+function solveTiers(
+  chars: Iterable<string>,
+  rels: Constraint[],
+  seed: Map<string, number>,
+  fix: Map<string, number>,
+  maxIdx: number,
+  charNames?: Map<string, string>,
+  options: SolveOptions = {},
+): SolveResult {
+  const charSet = new Set(chars);
+
+  // Union-find over non-strict edges.
+  const parent = new Map<string, string>();
+  function find(x: string): string {
+    if (!parent.has(x)) parent.set(x, x);
+    let r = x;
+    while (parent.get(r)! !== r) r = parent.get(r)!;
+    while (parent.get(x)! !== r) {
+      const p = parent.get(x)!;
+      parent.set(x, r);
+      x = p;
+    }
+    return r;
   }
-  return { fwd, rev };
+  function union(a: string, b: string) {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  }
+  for (const id of charSet) find(id);
+  for (const rel of rels) {
+    if (!rel.strict && charSet.has(rel.superiorId) && charSet.has(rel.inferiorId)) {
+      union(rel.superiorId, rel.inferiorId);
+    }
+  }
+
+  // A strict edge inside one class is unsatisfiable (same-tier contradicts gap).
+  for (const rel of rels) {
+    if (!rel.strict) continue;
+    if (!charSet.has(rel.superiorId) || !charSet.has(rel.inferiorId)) continue;
+    if (find(rel.superiorId) === find(rel.inferiorId)) {
+      const supName = charNames?.get(rel.superiorId) ?? rel.superiorId;
+      const infName = charNames?.get(rel.inferiorId) ?? rel.inferiorId;
+      const tierMap = seedToTierMap(charSet, seed, find);
+      return {
+        tierMap,
+        find,
+        error: `${supName} > ${infName} contradicts a >= chain that forces them into the same tier`,
+      };
+    }
+  }
+
+  // Class-level cycle: strict edges between same-tier groups can form a
+  // loop even when no individual rel sits in a graph cycle and no strict
+  // edge is within one class. Detect upfront so the cascade doesn't spin
+  // forever and we can give the user a useful error.
+  const classGraph = new Map<string, Set<string>>();
+  for (const rel of rels) {
+    if (!rel.strict) continue;
+    if (!charSet.has(rel.superiorId) || !charSet.has(rel.inferiorId)) continue;
+    const supC = find(rel.superiorId);
+    const infC = find(rel.inferiorId);
+    if (supC === infC) continue;
+    if (!classGraph.has(supC)) classGraph.set(supC, new Set());
+    classGraph.get(supC)!.add(infC);
+  }
+  const classSCCs = detectCycles(classGraph);
+  if (classSCCs.length > 0) {
+    return {
+      tierMap: seedToTierMap(charSet, seed, find),
+      find,
+      error: 'A `>` relationship combined with `>=` chains forms a tier loop — open the Contradictions view to see which rels conflict',
+    };
+  }
+
+  // Initial class tiers: fix > seed (take max across class members).
+  const compTier = new Map<string, number>();
+  for (const id of charSet) {
+    const c = find(id);
+    const f = fix.get(id);
+    if (f != null) {
+      const existing = compTier.get(c);
+      if (existing != null && existing !== f) {
+        return {
+          tierMap: seedToTierMap(charSet, seed, find),
+          find,
+          error: 'Fixed characters in the same >= chain are pinned to different tiers',
+        };
+      }
+      compTier.set(c, f);
+    }
+  }
+  for (const id of charSet) {
+    const c = find(id);
+    if (compTier.has(c)) continue; // a fix already set this class
+    const s = seed.get(id);
+    if (s == null) continue;
+    const existing = compTier.get(c);
+    if (existing == null || s > existing) compTier.set(c, s);
+  }
+  for (const id of charSet) {
+    const c = find(id);
+    if (!compTier.has(c)) compTier.set(c, 0);
+  }
+
+  const fixedComps = new Set<string>();
+  for (const id of fix.keys()) {
+    if (charSet.has(id)) fixedComps.add(find(id));
+  }
+
+  // Cascade strict edges at class level. (Strict edges within a class
+  // would have errored out above — this filter just defends against bad
+  // data from making the loop spin.)
+  const strictRels = rels.filter(
+    (r) =>
+      r.strict &&
+      charSet.has(r.superiorId) &&
+      charSet.has(r.inferiorId) &&
+      find(r.superiorId) !== find(r.inferiorId),
+  );
+  const MAX_ITER = Math.max(100, compTier.size * (maxIdx + 2) * 2 + 10);
+  let iter = 0;
+  let changed = true;
+  while (changed && iter < MAX_ITER) {
+    changed = false;
+    iter++;
+    for (const rel of strictRels) {
+      const supC = find(rel.superiorId);
+      const infC = find(rel.inferiorId);
+      const supT = compTier.get(supC)!;
+      const infT = compTier.get(infC)!;
+      if (supT + 1 > infT) {
+        const canPushInf = !fixedComps.has(infC) && supT + 1 <= maxIdx;
+        const canPushSup = !fixedComps.has(supC) && infT - 1 >= 0;
+        if (canPushInf) {
+          compTier.set(infC, supT + 1);
+          changed = true;
+        } else if (canPushSup) {
+          compTier.set(supC, infT - 1);
+          changed = true;
+        } else if (options.clampOverflow) {
+          // Best-effort: shove inf down as far as the list allows. The
+          // inconsistency banner will flag the remaining violation.
+          if (!fixedComps.has(infC) && infT < maxIdx) {
+            compTier.set(infC, maxIdx);
+            changed = true;
+          } else {
+            // Nothing more to do; leave as-is and bail out of the loop.
+            changed = false;
+            break;
+          }
+        } else {
+          const supName = charNames?.get(rel.superiorId) ?? rel.superiorId;
+          const infName = charNames?.get(rel.inferiorId) ?? rel.inferiorId;
+          const boundary = supT + 1 > maxIdx ? 'bottom' : 'top';
+          return {
+            tierMap: compToTierMap(charSet, compTier, find),
+            find,
+            error: `${supName} > ${infName} — no room at the ${boundary} of the list`,
+          };
+        }
+      }
+    }
+  }
+
+  if (iter >= MAX_ITER) {
+    return {
+      tierMap: compToTierMap(charSet, compTier, find),
+      find,
+      error: 'Constraints could not be satisfied (iteration cap)',
+    };
+  }
+
+  return { tierMap: compToTierMap(charSet, compTier, find), find };
 }
 
-/**
- * After a user moves a character to a new tier, cascade all relationship
- * constraints so the tier list stays consistent.
- *
- * For strict relationships (>), the inferior must be in a strictly lower tier.
- * For non-strict (>=), same tier is allowed.
- */
+function seedToTierMap(
+  charSet: Set<string>,
+  seed: Map<string, number>,
+  find: (x: string) => string,
+): Map<string, number> {
+  const tm = new Map<string, number>();
+  for (const id of charSet) {
+    const c = find(id);
+    tm.set(id, seed.get(id) ?? seed.get(c) ?? 0);
+  }
+  return tm;
+}
+
+function compToTierMap(
+  charSet: Set<string>,
+  compTier: Map<string, number>,
+  find: (x: string) => string,
+): Map<string, number> {
+  const tm = new Map<string, number>();
+  for (const id of charSet) tm.set(id, compTier.get(find(id)) ?? 0);
+  return tm;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Public API
+// ──────────────────────────────────────────────────────────────────────────
+
 export type EnforceResult =
   | { ok: true; assignments: TierAssignment[] }
   | { ok: false; reason: string };
 
+/**
+ * After a user drags a character to a new tier, cascade constraints so the
+ * tier list stays consistent. Non-strict (>=) chains all move together to
+ * the moved character's tier. Strict (>) constraints cascade between the
+ * resulting equivalence classes.
+ */
 export function enforceAfterMove(
   currentAssignments: TierAssignment[],
   relationships: Relationship[],
@@ -55,100 +267,44 @@ export function enforceAfterMove(
     return { ok: true, assignments: result };
   }
 
-  const tierMap = new Map<string, number>();
-  for (const a of currentAssignments) {
-    tierMap.set(a.characterId, toIdx(a.tier, tierIds));
-  }
+  const targetIdx = toIdx(targetTier, tierIds);
+  const placedSet = new Set<string>([movedCharId]);
+  for (const a of currentAssignments) placedSet.add(a.characterId);
+
+  const seed = new Map<string, number>();
+  for (const a of currentAssignments) seed.set(a.characterId, toIdx(a.tier, tierIds));
+  seed.set(movedCharId, targetIdx);
+
+  const fix = new Map<string, number>([[movedCharId, targetIdx]]);
+
+  const rels: Constraint[] = relationships.map((r) => ({
+    superiorId: r.superiorId,
+    inferiorId: r.inferiorId,
+    strict: r.strict ?? false,
+  }));
 
   const movedName = charNames?.get(movedCharId) ?? movedCharId.slice(0, 8);
-  log.info('enforce', `move ${movedName} → tier "${targetTier}" (idx ${toIdx(targetTier, tierIds)})`, {
-    totalAssignments: currentAssignments.length,
-    totalRelationships: relationships.length,
-    numTiers: tierIds.length,
-  });
+  log.info('enforce', `move ${movedName} → tier "${targetTier}" (idx ${targetIdx})`);
 
-  // Place at target — no pre-validation. Let the cascade handle everything.
-  tierMap.set(movedCharId, toIdx(targetTier, tierIds));
-
-  const { fwd, rev } = buildGraphPair(relationships);
-
-  // Phase 1: Push descendants down
-  {
-    const queue = [...(fwd.get(movedCharId)?.keys() ?? [])];
-    while (queue.length > 0) {
-      const node = queue.shift()!;
-      const cur = tierMap.get(node);
-      if (cur == null) continue;
-
-      let reqMin = 0;
-      for (const [sup, edge] of rev.get(node) ?? new Map()) {
-        const si = tierMap.get(sup);
-        if (si != null) reqMin = Math.max(reqMin, si + (edge.strict ? 1 : 0));
-      }
-
-      if (cur < reqMin) {
-        const newIdx = Math.min(reqMin, maxIdx);
-        log.info('enforce', `push down: ${charNames?.get(node) ?? node.slice(0, 8)} tier ${cur} → ${newIdx}`);
-        tierMap.set(node, newIdx);
-        for (const child of fwd.get(node)?.keys() ?? []) queue.push(child);
-      }
-    }
-  }
-
-  // Phase 2: Push ancestors up
-  {
-    const queue = [...(rev.get(movedCharId)?.keys() ?? [])];
-    while (queue.length > 0) {
-      const node = queue.shift()!;
-      const cur = tierMap.get(node);
-      if (cur == null) continue;
-
-      let reqMax = maxIdx;
-      for (const [inf, edge] of fwd.get(node) ?? new Map()) {
-        const ii = tierMap.get(inf);
-        if (ii != null) reqMax = Math.min(reqMax, ii - (edge.strict ? 1 : 0));
-      }
-
-      if (cur > reqMax) {
-        const newIdx = Math.max(reqMax, 0);
-        log.info('enforce', `push up: ${charNames?.get(node) ?? node.slice(0, 8)} tier ${cur} → ${newIdx}`);
-        tierMap.set(node, newIdx);
-        for (const parent of rev.get(node)?.keys() ?? []) queue.push(parent);
-      }
-    }
-  }
-
-  // After cascading, verify ALL constraints are satisfied.
-  // If any are violated (boundary clamp), the move is blocked.
-  for (const rel of relationships) {
-    const si = tierMap.get(rel.superiorId);
-    const ii = tierMap.get(rel.inferiorId);
-    if (si == null || ii == null) continue;
-    const gap = (rel.strict ?? false) ? 1 : 0;
-    if (si + gap > ii) {
-      const supName = charNames?.get(rel.superiorId) ?? rel.superiorId;
-      const infName = charNames?.get(rel.inferiorId) ?? rel.inferiorId;
-      const op = rel.strict ? '>' : '>=';
-      const boundary = si >= maxIdx ? 'bottom' : 'top';
-      return {
-        ok: false,
-        reason: `${supName} ${op} ${infName} — no room at the ${boundary} of the list`,
-      };
-    }
-  }
+  const solved = solveTiers(placedSet, rels, seed, fix, maxIdx, charNames);
+  if (solved.error) return { ok: false, reason: solved.error };
 
   return {
     ok: true,
     assignments: enforceWithinTierOrder(
-      rebuildAssignments(tierMap, currentAssignments, tierIds),
+      rebuildAssignments(solved.tierMap, currentAssignments, tierIds),
       relationships,
     ),
   };
 }
 
 /**
- * Auto-place unranked characters that have relationships, then enforce
- * all constraints across the board.
+ * Place unranked characters that have relationships to placed ones, and
+ * enforce all constraints across the list. Non-strict (>=) pulls unranked
+ * chars straight to the partner's tier; strict (>) places one tier above
+ * or below as appropriate. Best-effort: if constraints can't be fully
+ * satisfied, logs a warning and returns the partial state rather than
+ * failing.
  */
 export function autoPlaceAndEnforce(
   currentAssignments: TierAssignment[],
@@ -157,105 +313,49 @@ export function autoPlaceAndEnforce(
   tierIds: string[],
 ): TierAssignment[] {
   const maxIdx = tierIds.length - 1;
-
   if (relationships.length === 0) return currentAssignments;
 
-  const tierMap = new Map<string, number>();
-  for (const a of currentAssignments) {
-    tierMap.set(a.characterId, toIdx(a.tier, tierIds));
-  }
-
-  const { fwd, rev } = buildGraphPair(relationships);
-
-  // Find characters in relationships but not yet placed
+  // Every character that appears on either side of a relationship and is in
+  // the active tier list belongs to the solver. Unranked chars without any
+  // rel stay where they are (outside the solver's world).
   const inRels = new Set<string>();
   for (const rel of relationships) {
     if (allCharacterIds.has(rel.superiorId)) inRels.add(rel.superiorId);
     if (allCharacterIds.has(rel.inferiorId)) inRels.add(rel.inferiorId);
   }
+  const charSet = new Set<string>();
+  for (const a of currentAssignments) charSet.add(a.characterId);
+  for (const id of inRels) charSet.add(id);
 
-  const unranked = [...inRels].filter((id) => !tierMap.has(id));
+  const seed = new Map<string, number>();
+  for (const a of currentAssignments) seed.set(a.characterId, toIdx(a.tier, tierIds));
+  // Unranked chars: no seed → default to 0 (top). Cascade pushes down.
 
-  if (unranked.length > 0) {
-    // Place each unranked character at the HIGHEST tier that respects
-    // all existing constraints. Iterate until stable, since placing
-    // one character may enable placing others.
-    const remaining = new Set(unranked);
-    let prevSize = remaining.size + 1;
+  const rels: Constraint[] = relationships.map((r) => ({
+    superiorId: r.superiorId,
+    inferiorId: r.inferiorId,
+    strict: r.strict ?? false,
+  }));
 
-    while (remaining.size > 0 && remaining.size < prevSize) {
-      prevSize = remaining.size;
-      for (const charId of [...remaining]) {
-        // Highest valid = max of (each superior's tier + gap for strict)
-        let lo = 0; // lowest allowed tier index (0 = highest tier)
-        let hasPlacedNeighbor = false;
-
-        for (const [sup, edge] of rev.get(charId) ?? new Map()) {
-          const si = tierMap.get(sup);
-          if (si != null) {
-            lo = Math.max(lo, si + (edge.strict ? 1 : 0));
-            hasPlacedNeighbor = true;
-          }
-        }
-
-        // Also check inferiors: we must be ABOVE them
-        for (const [inf] of fwd.get(charId) ?? new Map()) {
-          if (tierMap.has(inf)) hasPlacedNeighbor = true;
-        }
-
-        if (hasPlacedNeighbor) {
-          tierMap.set(charId, Math.min(lo, maxIdx));
-          remaining.delete(charId);
-        }
-      }
-    }
-
-    // Characters with no placed neighbors at all — place at top tier (0).
-    // The fixpoint enforcement below will push them down as needed.
-    for (const charId of remaining) {
-      tierMap.set(charId, 0);
-    }
-  }
-
-  // Enforce all constraints (fixpoint: push inferiors down, respecting strict gaps).
-  // Upper bound: each character can be pushed down at most tierIds.length times,
-  // so tierMap.size * tierIds.length is a safe cap. If we ever exceed it something
-  // has gone sideways (e.g., unsatisfiable relationships) — surface it instead of
-  // silently returning.
-  const MAX_ITER = Math.max(100, tierMap.size * tierIds.length);
-  let changed = true;
-  let iter = 0;
-  while (changed && iter < MAX_ITER) {
-    changed = false;
-    iter++;
-    for (const rel of relationships) {
-      const si = tierMap.get(rel.superiorId);
-      const ii = tierMap.get(rel.inferiorId);
-      if (si == null || ii == null) continue;
-      const minGap = (rel.strict ?? false) ? 1 : 0;
-      if (si + minGap > ii) {
-        tierMap.set(rel.inferiorId, Math.min(si + minGap, maxIdx));
-        changed = true;
-      }
-    }
-  }
-  if (iter >= MAX_ITER && changed) {
-    log.warn('enforce', `autoPlaceAndEnforce hit iteration cap (${MAX_ITER}) — constraints may be unsatisfiable`, {
-      nodes: tierMap.size,
-      relationships: relationships.length,
-    });
+  const solved = solveTiers(charSet, rels, seed, new Map(), maxIdx, undefined, {
+    clampOverflow: true,
+  });
+  if (solved.error) {
+    log.warn('enforce', `autoPlaceAndEnforce: ${solved.error}`);
   }
 
   return enforceWithinTierOrder(
-    rebuildAssignments(tierMap, currentAssignments, tierIds),
+    rebuildAssignments(solved.tierMap, currentAssignments, tierIds),
     relationships,
   );
 }
 
 /**
- * Enforce within-tier ordering based on non-strict (>=) relationships.
- * If A >= B and both are in the same tier, A must be positioned before B.
- * Exported so the drag handler can apply it to within-tier reorders.
+ * Order characters within each tier. Non-strict (>=) edges between two
+ * characters in the same tier say "superior before inferior." Under the
+ * current model, bidirectional >= is rejected up front, so no SCCs can
+ * form — plain Kahn's topological sort works directly, with position as
+ * the tiebreaker for nodes that aren't related to each other.
  */
 export function enforceWithinTierOrder(
   assignments: TierAssignment[],
@@ -263,7 +363,6 @@ export function enforceWithinTierOrder(
 ): TierAssignment[] {
   if (relationships.length === 0) return assignments;
 
-  // Group assignments by tier
   const byTier = new Map<string, TierAssignment[]>();
   for (const a of assignments) {
     if (!byTier.has(a.tier)) byTier.set(a.tier, []);
@@ -278,53 +377,52 @@ export function enforceWithinTierOrder(
       continue;
     }
 
-    const charIds = new Set(tierAssigns.map((a) => a.characterId));
+    const charIds = [...new Set(tierAssigns.map((a) => a.characterId))];
     const posMap = new Map(tierAssigns.map((a) => [a.characterId, a.position]));
 
-    // Build subgraph: non-strict edges between characters in this tier
     const edges = new Map<string, string[]>();
-    const inDegree = new Map<string, number>();
+    const inDeg = new Map<string, number>();
     for (const id of charIds) {
       edges.set(id, []);
-      inDegree.set(id, 0);
+      inDeg.set(id, 0);
     }
-
     for (const rel of relationships) {
-      if (rel.strict) continue; // strict means different tiers, no within-tier effect
-      if (charIds.has(rel.superiorId) && charIds.has(rel.inferiorId)) {
-        edges.get(rel.superiorId)!.push(rel.inferiorId);
-        inDegree.set(rel.inferiorId, (inDegree.get(rel.inferiorId) ?? 0) + 1);
-      }
+      if (rel.strict) continue;
+      if (!edges.has(rel.superiorId) || !edges.has(rel.inferiorId)) continue;
+      edges.get(rel.superiorId)!.push(rel.inferiorId);
+      inDeg.set(rel.inferiorId, inDeg.get(rel.inferiorId)! + 1);
     }
 
-    // Topological sort (Kahn's) with existing position as tiebreaker
-    const sorted: string[] = [];
-    const queue = [...charIds]
-      .filter((id) => (inDegree.get(id) ?? 0) === 0)
+    // Kahn's — at each step, pick the ready node with the lowest current
+    // position so non-constrained chars keep their drag-order.
+    const ready: string[] = charIds
+      .filter((id) => inDeg.get(id) === 0)
       .sort((a, b) => (posMap.get(a) ?? 0) - (posMap.get(b) ?? 0));
 
-    while (queue.length > 0) {
-      const node = queue.shift()!;
+    const sorted: string[] = [];
+    while (ready.length > 0) {
+      const node = ready.shift()!;
       sorted.push(node);
       for (const neighbor of edges.get(node) ?? []) {
-        const newDeg = (inDegree.get(neighbor) ?? 1) - 1;
-        inDegree.set(neighbor, newDeg);
-        if (newDeg === 0) {
-          // Insert in position-sorted order for stable tiebreaking
-          const nPos = posMap.get(neighbor) ?? 0;
+        const d = inDeg.get(neighbor)! - 1;
+        inDeg.set(neighbor, d);
+        if (d === 0) {
+          const pos = posMap.get(neighbor) ?? 0;
           let i = 0;
-          while (i < queue.length && (posMap.get(queue[i]) ?? 0) <= nPos) i++;
-          queue.splice(i, 0, neighbor);
+          while (i < ready.length && (posMap.get(ready[i]) ?? 0) <= pos) i++;
+          ready.splice(i, 0, neighbor);
         }
       }
     }
 
-    // Any remaining characters (from equality cycles like A=B) keep existing order
-    const inSorted = new Set(sorted);
-    const remaining = [...charIds]
-      .filter((id) => !inSorted.has(id))
-      .sort((a, b) => (posMap.get(a) ?? 0) - (posMap.get(b) ?? 0));
-    sorted.push(...remaining);
+    // If any nodes remain unsorted, there's a stale cycle in the stored
+    // data (shouldn't happen post-cycle-check). Append by position.
+    if (sorted.length < charIds.length) {
+      const missed = charIds
+        .filter((id) => !sorted.includes(id))
+        .sort((a, b) => (posMap.get(a) ?? 0) - (posMap.get(b) ?? 0));
+      sorted.push(...missed);
+    }
 
     sorted.forEach((id, pos) => {
       result.push({ characterId: id, tier, position: pos });
@@ -339,17 +437,13 @@ export type CompactResult =
   | { ok: false; reason: string };
 
 /**
- * Move every *placed* character to the highest tier it can occupy without
- * breaking any relationship. Unranked characters are left alone.
+ * Move every placed character to the highest tier it can occupy without
+ * breaking a relationship. Non-strict (>=) chains are pulled together into
+ * one tier; strict (>) edges force tier gaps. Unranked characters are
+ * untouched.
  *
- * A placed character with no relationships to other placed characters
- * floats all the way to the top tier (level 0). Relationships involving
- * an unranked endpoint are ignored — those characters haven't been
- * addressed by the user yet.
- *
- * If any chain of strict (>) edges through placed characters is longer
- * than the tier list, the whole operation is refused with an explanation
- * that names the offending chain.
+ * If a chain is longer than the tier list can hold, the whole op is
+ * refused with the offending chain named.
  */
 export function compactUpward(
   currentAssignments: TierAssignment[],
@@ -362,57 +456,32 @@ export function compactUpward(
     return { ok: true, assignments: [], movedCount: 0 };
   }
 
-  const placedIds = new Set(currentAssignments.map((a) => a.characterId));
-  const relevantRels = relationships.filter(
-    (r) => placedIds.has(r.superiorId) && placedIds.has(r.inferiorId),
-  );
+  const placedSet = new Set(currentAssignments.map((a) => a.characterId));
+  const relevantRels: Constraint[] = relationships
+    .filter((r) => placedSet.has(r.superiorId) && placedSet.has(r.inferiorId))
+    .map((r) => ({ superiorId: r.superiorId, inferiorId: r.inferiorId, strict: r.strict ?? false }));
 
-  // Seed every placed character at the top tier.
-  const tierMap = new Map<string, number>();
-  for (const a of currentAssignments) tierMap.set(a.characterId, 0);
+  // Seed all at top (idx 0). Cascade pushes down only as needed.
+  const seed = new Map<string, number>();
+  for (const id of placedSet) seed.set(id, 0);
 
-  // Push-down fixpoint: each edge demands inferior >= superior + gap.
-  // Non-strict (>=) cycles don't push (gap 0). Strict cycles are impossible
-  // here because the cycle check rejects them at relationship-add time.
-  const MAX_ITER = Math.max(100, placedIds.size * tierIds.length + 1);
-  let changed = true;
-  let iter = 0;
-  while (changed && iter < MAX_ITER) {
-    changed = false;
-    iter++;
-    for (const rel of relevantRels) {
-      const si = tierMap.get(rel.superiorId)!;
-      const ii = tierMap.get(rel.inferiorId)!;
-      const gap = (rel.strict ?? false) ? 1 : 0;
-      if (si + gap > ii) {
-        tierMap.set(rel.inferiorId, si + gap);
-        changed = true;
-      }
+  // Compact enforces the written rels exactly — if they contain a real
+  // contradiction (a `>` between two chars that a `>=` chain forces into
+  // the same tier, or a chain too long for the list) we refuse to write
+  // partial results and surface the issue so the user can fix it. The
+  // inconsistency banner also lists rel-level contradictions so they're
+  // visible without clicking Compact.
+  const solved = solveTiers(placedSet, relevantRels, seed, new Map(), maxIdx, charNames);
+
+  if (solved.error) {
+    if (/no room at the bottom/i.test(solved.error)) {
+      const overflowReason = buildChainOverflowReason(relevantRels, tierIds, charNames);
+      if (overflowReason) return { ok: false, reason: overflowReason };
     }
+    return { ok: false, reason: solved.error };
   }
 
-  // If anyone needs a tier beyond the bottom, explain via the chain that forced it.
-  for (const [charId, idx] of tierMap) {
-    if (idx > maxIdx) {
-      const chain = traceForcingChain(charId, relevantRels, tierMap);
-      const names = chain.map((id) => charNames?.get(id) ?? id.slice(0, 8));
-      const ops: string[] = [];
-      for (let i = 0; i < chain.length - 1; i++) {
-        const rel = relevantRels.find(
-          (r) => r.superiorId === chain[i] && r.inferiorId === chain[i + 1],
-        );
-        ops.push(rel?.strict ? '>' : '>=');
-      }
-      let chainStr = names[0] ?? '';
-      for (let i = 1; i < names.length; i++) chainStr += ` ${ops[i - 1]} ${names[i]}`;
-      return {
-        ok: false,
-        reason: `Chain needs ${idx + 1} tiers but the list only has ${tierIds.length}: ${chainStr}`,
-      };
-    }
-  }
-
-  const rebuilt = rebuildAssignments(tierMap, currentAssignments, tierIds);
+  const rebuilt = rebuildAssignments(solved.tierMap, currentAssignments, tierIds);
   const ordered = enforceWithinTierOrder(rebuilt, relationships);
 
   const origTier = new Map(currentAssignments.map((a) => [a.characterId, a.tier]));
@@ -422,6 +491,34 @@ export function compactUpward(
   }
 
   return { ok: true, assignments: ordered, movedCount };
+}
+
+function buildChainOverflowReason(
+  rels: Constraint[],
+  tierIds: string[],
+  charNames?: Map<string, string>,
+): string | null {
+  const relationships: Relationship[] = rels.map((r, i) => ({
+    id: `c-${i}`,
+    tierListId: '',
+    superiorId: r.superiorId,
+    inferiorId: r.inferiorId,
+    strict: r.strict,
+    createdAt: 0,
+  }));
+  const needed = maxChainLength(relationships);
+  if (needed <= tierIds.length) return null;
+  const path = longestChainPath(relationships);
+  if (path.length === 0) return null;
+  const names = path.map((id) => charNames?.get(id) ?? id.slice(0, 8));
+  const relByPair = new Map<string, boolean>();
+  for (const r of rels) relByPair.set(`${r.superiorId}->${r.inferiorId}`, r.strict);
+  let chainStr = names[0] ?? '';
+  for (let i = 1; i < path.length; i++) {
+    const op = relByPair.get(`${path[i - 1]}->${path[i]}`) ? '>' : '>=';
+    chainStr += ` ${op} ${names[i]}`;
+  }
+  return `Chain needs ${needed} tiers but the list only has ${tierIds.length}: ${chainStr}`;
 }
 
 /**
@@ -465,12 +562,9 @@ function traceForcingChain(
 /**
  * Longest-path length (in tier *levels*) through the relationship DAG.
  *
- * Returned value is the 1-based chain length: the minimum number of
- * tiers needed for the graph to be satisfiable. A single node = 1;
- * A > B = 2; A >= B = 1 (no strict gap).
- *
- * Non-strict cycles (equality groups) collapse to a single level.
- * Callers should have already rejected unsatisfiable (strict) cycles.
+ * Returned value is the 1-based chain length: the minimum number of tiers
+ * needed for the graph to be satisfiable. Under the new semantics `>=`
+ * edges contribute 0 to level (same tier) and `>` contributes 1.
  */
 export function maxChainLength(relationships: Relationship[]): number {
   if (relationships.length === 0) return 0;
@@ -506,10 +600,7 @@ export function maxChainLength(relationships: Relationship[]): number {
   return maxLevel + 1;
 }
 
-/**
- * Like `maxChainLength`, but reports which chain hit the maximum so we
- * can tell the user *why* their addition was rejected.
- */
+/** Like `maxChainLength`, but returns the actual chain path for display. */
 export function longestChainPath(relationships: Relationship[]): string[] {
   if (relationships.length === 0) return [];
 
@@ -548,7 +639,6 @@ export function longestChainPath(relationships: Relationship[]): string[] {
     }
   }
   if (!deepest) return [];
-
   return traceForcingChain(deepest, relationships, level);
 }
 

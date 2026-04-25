@@ -36,7 +36,7 @@ export function NavBar() {
     imageDisplay, setImageDisplay, cardSize, setCardSize,
     setPresenting, navigateHome, showTierCounts, setShowTierCounts,
     searchQuery, setSearchQuery,
-    setHelpOpen, setSnapshotsOpen, setSyncOpen,
+    setHelpOpen, setSnapshotsOpen, setSyncOpen, setCopyTextOpen,
     activeTierListId, openTierList,
   } = useUIStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -100,13 +100,18 @@ export function NavBar() {
       const result = await compactTierList();
       if (!result.ok) {
         setStatus({ kind: 'err', text: result.reason });
-      } else if (result.moved === 0) {
+      } else if (result.moved === 0 && result.reordered === 0) {
         setStatus({ kind: 'ok', text: 'Already as compact as it can get — nothing moved.' });
       } else {
-        setStatus({
-          kind: 'ok',
-          text: `Compacted ${result.moved} character${result.moved === 1 ? '' : 's'} upward.`,
-        });
+        const parts: string[] = [];
+        if (result.moved > 0) {
+          parts.push(`compacted ${result.moved} character${result.moved === 1 ? '' : 's'} upward`);
+        }
+        if (result.reordered > 0) {
+          parts.push(`reordered ${result.reordered} within their tier`);
+        }
+        const text = parts.join(', ');
+        setStatus({ kind: 'ok', text: text.charAt(0).toUpperCase() + text.slice(1) + '.' });
       }
     } catch (err) {
       setStatus({ kind: 'err', text: `Compact failed: ${err instanceof Error ? err.message : String(err)}` });
@@ -343,6 +348,14 @@ export function NavBar() {
           Backups
         </button>
         <button
+          onClick={() => setCopyTextOpen(true)}
+          className="hidden sm:inline-flex px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
+                     rounded transition-colors"
+          title="Copy this tier list as plain text"
+        >
+          Copy Text
+        </button>
+        <button
           onClick={handleExport}
           disabled={busy}
           className="hidden sm:inline-flex px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
@@ -400,6 +413,7 @@ export function NavBar() {
               <MenuAction label={syncStatusLabel(syncStatus)} onClick={() => { setSyncOpen(true); setMobileMenuOpen(false); }} />
               <MenuAction label="Compact" disabled={busy} onClick={() => { setCompactConfirmOpen(true); setMobileMenuOpen(false); }} />
               <MenuAction label="Backups" onClick={() => { setSnapshotsOpen(true); setMobileMenuOpen(false); }} />
+              <MenuAction label="Copy Text" onClick={() => { setCopyTextOpen(true); setMobileMenuOpen(false); }} />
               <MenuAction label="Help" onClick={() => { setHelpOpen(true); setMobileMenuOpen(false); }} />
               <MenuAction label={busy ? '…' : 'Export'} disabled={busy} onClick={() => { handleExport(); setMobileMenuOpen(false); }} />
               <MenuAction label={busy ? '…' : 'Import'} disabled={busy} onClick={() => { fileInputRef.current?.click(); setMobileMenuOpen(false); }} />

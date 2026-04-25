@@ -1,13 +1,19 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { AppShell } from './components/layout/AppShell';
 import { HomePage } from './components/home/HomePage';
-import { PresentationView } from './components/tier-list/PresentationView';
 import { SnapshotManager } from './components/layout/SnapshotManager';
 import { HelpPanel } from './components/layout/HelpPanel';
 import { SyncPanel } from './components/layout/SyncPanel';
+import { CopyAsTextModal } from './components/layout/CopyAsTextModal';
 import { useUIStore } from './stores/ui-store';
 import { requestPersistentStorage } from './db/auto-backup';
 import { initAutoSync } from './lib/sync';
+
+const PresentationView = lazy(() =>
+  import('./components/tier-list/PresentationView').then((m) => ({
+    default: m.PresentationView,
+  })),
+);
 
 function App() {
   const page = useUIStore((s) => s.page);
@@ -29,10 +35,15 @@ function App() {
   return (
     <>
       {page === 'home' ? <HomePage /> : <AppShell />}
-      {presenting && <PresentationView />}
+      {presenting && (
+        <Suspense fallback={null}>
+          <PresentationView />
+        </Suspense>
+      )}
       <SnapshotManager />
       <HelpPanel />
       <SyncPanel />
+      <CopyAsTextModal />
     </>
   );
 }

@@ -26,13 +26,17 @@ export function HelpPanel() {
             <h3 className="text-white font-medium mb-2">Operators</h3>
             <table className="w-full text-xs">
               <tbody className="divide-y divide-gray-800">
-                <Row op="A > B" meaning="A must be in a strictly higher tier than B" />
-                <Row op="A >= B" meaning="A must be in the same tier or higher than B — also enforces A before B within the same tier" />
-                <Row op="A = B" meaning="A and B must be in the same tier (creates A >= B and B >= A)" />
-                <Row op="A <= B" meaning="Reverse of >= (B is same or higher)" />
-                <Row op="A < B" meaning="Reverse of > (B is strictly higher)" />
+                <Row op="A > B" meaning="A must be in a strictly higher tier than B (tier gap of at least 1)" />
+                <Row op="A >= B" meaning="A and B must be in the same tier, with A positioned before B" />
+                <Row op="A <= B" meaning="Reverse of >= (same tier, B before A)" />
+                <Row op="A < B" meaning="Reverse of > (B in a strictly higher tier)" />
               </tbody>
             </table>
+            <p className="text-[11px] text-gray-500 mt-2">
+              There is no explicit equality operator — "<code>=</code>" is no longer supported.
+              If you want two characters in the same tier, use <code className="text-gray-300">&gt;=</code>
+              (or <code className="text-gray-300">&lt;=</code>) and pick which one sits before the other.
+            </p>
           </section>
 
           {/* Input syntax */}
@@ -43,7 +47,7 @@ export function HelpPanel() {
               <SyntaxRow label="Chain" example="Luffy > Zoro > Sanji > Usopp" desc="Creates 3 relationships in one entry" />
               <SyntaxRow label="Fan-out" example="Luffy > Zoro, Sanji, Nami" desc="Luffy is above all three" />
               <SyntaxRow label="Combined" example="Luffy > Zoro, Sanji > Usopp" desc="Luffy above both, both above Usopp" />
-              <SyntaxRow label="Equality" example="Shanks = Mihawk" desc="Forces same tier" />
+              <SyntaxRow label="Same tier" example="Shanks >= Mihawk" desc="Same tier, Shanks positioned before Mihawk" />
             </div>
           </section>
 
@@ -89,10 +93,20 @@ export function HelpPanel() {
               The <span className="text-gray-300">Redundant</span> toggle next to the sort
               dropdown filters the list down to relationships that are already implied by
               another path through the graph — each one shows the chain that implies it
-              (e.g. <code className="text-amber-400/80">implied by: A &gt; B = C &gt; D</code>).
+              (e.g. <code className="text-amber-400/80">implied by: A &gt; B &gt;= C &gt; D</code>).
               Use it to prune noise, but remember that deleting a redundant rel is a
               judgment call: sometimes the direct statement carries context a derived chain
               doesn't.
+            </p>
+            <p className="text-xs text-gray-400 mt-2">
+              The <span className="text-red-300">Contradictions</span> toggle shows only
+              relationships that take part in a conflict and groups them by the cycle /
+              class they belong to. A contradiction is something the rules themselves can't
+              satisfy (e.g. <code className="text-red-300">A &gt;= B</code> and <code className="text-red-300">B &gt;= A</code>
+              together require <em>A before B and B before A simultaneously</em>, or a
+              <code className="text-red-300"> &gt;</code> edge inside a chain of
+              <code className="text-red-300"> &gt;=</code> that forces both endpoints to the
+              same tier). Delete one relationship from each group to resolve.
             </p>
           </section>
 
@@ -105,30 +119,38 @@ export function HelpPanel() {
                 tier list physically cannot contradict your stated relationships.
               </li>
               <li>
-                <span className="text-gray-300">Auto-placement:</span> When you add a relationship,
-                characters are automatically placed in the highest valid tier.
+                <span className="text-gray-300">Non-strict (&gt;=) = same tier:</span> A &gt;= B pulls
+                both characters into the same tier and puts A before B in position. If
+                you drag A up to a higher tier manually, the placement stays until the
+                next Compact, which pulls A back down to match B.
               </li>
               <li>
-                <span className="text-gray-300">Drag cascading:</span> Moving a character pushes
-                related characters in both directions — superiors get pushed up, inferiors
-                get pushed down. If there's no room (a character hits the top or bottom
-                tier), the move is blocked with a warning explaining which rule caused it.
+                <span className="text-gray-300">Strict (&gt;) = tier gap:</span> A &gt; B forces
+                A to be in a strictly higher tier (at least one tier above B).
               </li>
               <li>
-                <span className="text-gray-300">Within-tier ordering:</span> Characters with
-                A &gt;= B in the same tier are kept in order (A before B).
+                <span className="text-gray-300">Auto-placement:</span> When you add a
+                relationship, any unranked character is placed at the tier implied by
+                its partner — same tier for &gt;=, one tier above/below for &gt;.
               </li>
               <li>
-                <span className="text-gray-300">Cycle prevention:</span> Relationships that would
-                create an unsatisfiable cycle (containing any &gt;) are rejected with
-                the full cycle path shown.
+                <span className="text-gray-300">Drag cascading:</span> Moving a character pulls
+                every partner it's tied to (via &gt;=) into the same tier and pushes
+                strict superiors/inferiors apart. If there's no room, the move is
+                blocked with an explanation.
+              </li>
+              <li>
+                <span className="text-gray-300">Cycle prevention:</span> Any cycle of
+                relationships is unsatisfiable — it would force a character to be both
+                before and after itself. Cycles are rejected at input time; if any
+                exist in stored data (e.g. legacy <code>=</code> pairs), the
+                inconsistency banner above the tier list flags them.
               </li>
               <li>
                 <span className="text-gray-300">Chain-length check:</span> A new relationship
                 that would build a strict-chain longer than the tier list can hold is
-                rejected outright — you'll see the offending chain and how many tiers it
-                would need. Applies whether the chain is created in one line or builds up
-                across many.
+                rejected outright — you'll see the offending chain and how many tiers
+                it would need.
               </li>
             </ul>
           </section>
@@ -160,10 +182,37 @@ export function HelpPanel() {
           <section>
             <h3 className="text-white font-medium mb-2">Custom Tiers</h3>
             <p className="text-xs text-gray-400">
-              Click "Manage Tiers" below the tier list to add, remove, rename, recolor,
-              or reorder tiers. Each tier list has its own tier definitions. Default is
-              S/A/B/C/D/F but you can use any names.
+              Manage tiers directly on the tier row itself. Each tier list has its own
+              tier definitions — default is S/A/B/C/D/F but you can use any names.
             </p>
+            <ul className="text-xs space-y-1 mt-2 text-gray-400">
+              <li>
+                <span className="text-gray-300">Rename</span> — click the tier letter on
+                the colored label box and type. Enter to save, Esc to cancel.
+              </li>
+              <li>
+                <span className="text-gray-300">Recolor</span> — hover the tier row and a
+                small color swatch appears in the corner of the label box. Click it to
+                open the color picker.
+              </li>
+              <li>
+                <span className="text-gray-300">Insert above / below</span> — hover a
+                tier row to reveal the action strip; <span className="text-gray-300">+ ▲</span>
+                adds a new tier directly above this one, <span className="text-gray-300">+ ▼</span>
+                adds one directly below. The new tier opens in rename mode automatically.
+              </li>
+              <li>
+                <span className="text-gray-300">Reorder</span> — the <span className="text-gray-300">▲</span>
+                and <span className="text-gray-300">▼</span> buttons in the same strip move the tier
+                up or down in the list.
+              </li>
+              <li>
+                <span className="text-gray-300">Delete</span> — <span className="text-gray-300">✕</span>
+                in the strip removes the tier. Any characters assigned to it are also
+                removed from the tier list (the characters themselves are kept in the
+                Unranked pool). Disabled when there's only one tier left.
+              </li>
+            </ul>
           </section>
 
           {/* Deleting characters */}
@@ -238,6 +287,14 @@ export function HelpPanel() {
               </li>
               <li><span className="text-gray-300">Undo / Redo</span> — Ctrl+Z to undo, Ctrl+Shift+Z or Ctrl+Y to redo. Tracks drag moves and relationship placements (last 50 states).</li>
               <li><span className="text-gray-300">Save Image</span> — In presentation mode, click "Save Image" to download the tier list as a PNG.</li>
+              <li>
+                <span className="text-gray-300">Copy Text</span> — Opens a text version
+                of the current tier list, one line per tier in the format
+                <code className="text-gray-300"> TierName: Entry1, Entry2, Entry3</code>.
+                Click <span className="text-gray-300">Copy to Clipboard</span> or the textarea
+                to copy. Tiers are in display order and characters are in their current
+                within-tier positions.
+              </li>
               <li>
                 <span className="text-gray-300">Graph</span> — Click &quot;Show Graph&quot; in the relationships panel.
                 Two layout modes, toggle in the toolbar:
