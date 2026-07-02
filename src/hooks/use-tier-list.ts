@@ -4,6 +4,8 @@ import type { TierList, TierAssignment } from '../types';
 import { DEFAULT_TIER_DEFS } from '../types';
 import { autoPlaceAndEnforce, compactUpward } from '../lib/enforce-constraints';
 import { undoManager } from '../lib/undo';
+import { log } from '../lib/logger';
+import { invalidateImage } from './use-image';
 import { useUIStore } from '../stores/ui-store';
 
 // ── Active tier list ID ──
@@ -99,6 +101,11 @@ export async function deleteTierList(id: string): Promise<void> {
       await db.tierLists.delete(id);
     },
   );
+
+  // Release cached object URLs (and their blobs) for the deleted images —
+  // mirrors deleteCharacters. Without it a later import restoring the same
+  // ids would serve stale cached URLs.
+  for (const imgId of imageIdsToDelete) invalidateImage(imgId);
 }
 
 export async function updateTierListName(id: string, name: string): Promise<void> {
@@ -113,23 +120,6 @@ export async function updateTierAssignments(tiers: TierAssignment[]): Promise<vo
     tiers,
     updatedAt: Date.now(),
   });
-}
-
-export async function assignCharacterToTier(
-  characterId: string,
-  tier: string,
-  position: number,
-): Promise<void> {
-  const tierList = await ensureTierList();
-  const tiers = tierList.tiers.filter((t) => t.characterId !== characterId);
-  tiers.push({ characterId, tier, position });
-  await updateTierAssignments(tiers);
-}
-
-export async function removeFromTier(characterId: string): Promise<void> {
-  const tierList = await ensureTierList();
-  const tiers = tierList.tiers.filter((t) => t.characterId !== characterId);
-  await updateTierAssignments(tiers);
 }
 
 /**
@@ -164,8 +154,9 @@ export async function enforceAndAutoPlace(): Promise<void> {
   }
   const totalMs = performance.now() - t0;
   if (totalMs > 200) {
-    console.info(
-      `[enforce] enforceAndAutoPlace took ${Math.round(totalMs)}ms (autoPlaceAndEnforce=${Math.round(enforceMs)}ms, ${relationships.length} rels, ${characters.length} chars)`,
+    log.warn(
+      'enforce',
+      `enforceAndAutoPlace took ${Math.round(totalMs)}ms (autoPlaceAndEnforce=${Math.round(enforceMs)}ms, ${relationships.length} rels, ${characters.length} chars)`,
     );
   }
 }
@@ -209,15 +200,6 @@ export async function compactTierList(): Promise<
 }
 
 // ── Tier definition management ──
-
-export async function addTierDef(name: string, color: string): Promise<string> {
-  const tierList = await ensureTierList();
-  const tierDefs = [...(tierList.tierDefs ?? DEFAULT_TIER_DEFS)];
-  const id = crypto.randomUUID();
-  tierDefs.push({ id, name, color });
-  await db.tierLists.update(getActiveTierListId(), { tierDefs, updatedAt: Date.now() });
-  return id;
-}
 
 /**
  * Insert a new tier at a specific index. Existing tiers at and after the

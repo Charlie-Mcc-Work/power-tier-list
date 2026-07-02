@@ -15,6 +15,7 @@ export function HelpPanel() {
           <button
             onClick={() => setOpen(false)}
             className="text-gray-400 hover:text-white transition-colors text-sm"
+            aria-label="Close help"
           >
             x
           </button>
@@ -86,8 +87,14 @@ export function HelpPanel() {
               sort by <span className="text-gray-300">Newest</span> (default),
               <span className="text-gray-300"> Oldest</span>, or alphabetically
               (<span className="text-gray-300">A–Z</span>, by the name on the left).
-              Equality rows are shown with the alphabetically-first name on the left so the
-              sort order matches what you see.
+            </p>
+            <p className="text-xs text-gray-400 mt-2">
+              Click the <code className="text-orange-400">&gt;</code> /
+              <code className="text-amber-400"> &gt;=</code> badge on any row to toggle that
+              relationship between strict (tier gap) and same-tier. The toggle is validated
+              like a new entry — if it would create a contradiction or need more tiers than
+              the list has, it's rejected with an explanation — and placements re-enforce
+              immediately on success.
             </p>
             <p className="text-xs text-gray-400 mt-2">
               The <span className="text-gray-300">Redundant</span> toggle next to the sort
@@ -130,8 +137,10 @@ export function HelpPanel() {
               </li>
               <li>
                 <span className="text-gray-300">Auto-placement:</span> When you add a
-                relationship, any unranked character is placed at the tier implied by
-                its partner — same tier for &gt;=, one tier above/below for &gt;.
+                relationship, an unranked character connected to a <em>placed</em> one is
+                placed at the tier implied by its partner — same tier for &gt;=, one tier
+                above/below for &gt;. A relationship between two unranked characters
+                leaves both unranked until one of them is placed.
               </li>
               <li>
                 <span className="text-gray-300">Drag cascading:</span> Moving a character pulls
@@ -248,7 +257,7 @@ export function HelpPanel() {
             <h3 className="text-white font-medium mb-2">Other Controls</h3>
             <ul className="text-xs space-y-1 text-gray-400">
               <li><span className="text-gray-300">Search</span> — Type in the search bar to find characters. Non-matches dim so matches stand out.</li>
-              <li><span className="text-gray-300"># toggle</span> — Show/hide character count per tier</li>
+              <li><span className="text-gray-300">Counts</span> — A summary above the tier list shows ranked / unranked / total. Each tier shows its own count under the tier name; toggle off via <span className="text-gray-300">#</span> in the toolbar.</li>
               <li><span className="text-gray-300">XS / S / M / L</span> — Card size presets</li>
               <li><span className="text-gray-300">Fit / Fill</span> — Image display: show full image or crop to square</li>
               <li><span className="text-gray-300">Present</span> — Fullscreen view for screenshots (Escape to exit)</li>
@@ -264,8 +273,8 @@ export function HelpPanel() {
                 <span className="text-gray-300"> (4) Picked folder (Chromium)</span> writes to a
                 folder of your choice with one click. On Firefox, point the Downloads folder at
                 a cloud-synced directory (Dropbox / OneDrive / iCloud Drive) and disk failures
-                won&rsquo;t cost you your list. Snapshots are also created just before an Import
-                so you can revert.
+                won&rsquo;t cost you your list. Snapshots are also created automatically just
+                before an Import or a Restore so either can be reverted.
               </li>
               <li>
                 <span className="text-gray-300">Export</span> — saves <em>only the tier list you&rsquo;re currently
@@ -277,7 +286,10 @@ export function HelpPanel() {
                 and fills it with the file&rsquo;s contents (your other tier lists are untouched);
                 <span className="text-gray-300"> Add as new list</span> copies the file into a brand-new tier list
                 with fresh ids, leaving everything you have alone. A backup snapshot is taken before either
-                so the operation is reversible from the Backups panel.
+                so the operation is reversible from the Backups panel. Relationships in the file are
+                checked on the way in: self-relationships and duplicate pairs are dropped (reported in
+                the result message), and any cycles are imported but flagged so you can resolve them in
+                the Contradictions view.
               </li>
               <li>
                 <span className="text-gray-300">Mobile</span> — Touch drag with long-press (hold a card for ~200ms, then drag).
@@ -285,7 +297,7 @@ export function HelpPanel() {
                 <span className="text-gray-300"> ⋮ </span> overflow button in the top bar to reach
                 Present, Sync, Backups, Export, Import, Help, plus card-size and image-display controls.
               </li>
-              <li><span className="text-gray-300">Undo / Redo</span> — Ctrl+Z to undo, Ctrl+Shift+Z or Ctrl+Y to redo. Tracks drag moves and relationship placements (last 50 states).</li>
+              <li><span className="text-gray-300">Undo / Redo</span> — Ctrl+Z to undo, Ctrl+Shift+Z or Ctrl+Y to redo. Tracks drag moves and relationship placements (last 50 states). History belongs to the open tier list and clears when you switch lists; the shortcut is ignored while you're typing in a text field.</li>
               <li><span className="text-gray-300">Save Image</span> — In presentation mode, click "Save Image" to download the tier list as a PNG.</li>
               <li>
                 <span className="text-gray-300">Copy Text</span> — Opens a text version

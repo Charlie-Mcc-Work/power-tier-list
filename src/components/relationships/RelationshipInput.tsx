@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
-import { addRelationshipsFromChain } from '../../hooks/use-relationships';
+import { addRelationshipsFromChain, addRelationshipsFromLines } from '../../hooks/use-relationships';
 import { enforceAndAutoPlace } from '../../hooks/use-tier-list';
 import { fuzzyMatchCharacter } from '../../lib/fuzzy-match';
 import { OP_REGEX } from '../../lib/relationship-parser';
@@ -108,19 +108,24 @@ export function RelationshipInput({ characters }: Props) {
     setDismissed(true);
     setProcessing(true);
 
-    const result = await processLine(input);
+    try {
+      const result = await processLine(input);
 
-    if (result.added > 0) {
-      await enforceAndAutoPlace();
-      setSuccess(`${result.added} relationship${result.added > 1 ? 's' : ''} added!`);
-      setInput('');
-      setNote('');
-      setTimeout(() => setSuccess(null), 2500);
+      if (result.added > 0) {
+        await enforceAndAutoPlace();
+        setSuccess(`${result.added} relationship${result.added > 1 ? 's' : ''} added!`);
+        setInput('');
+        setNote('');
+        setTimeout(() => setSuccess(null), 2500);
+      }
+      if (result.errors.length > 0) {
+        setError(result.errors.join('; '));
+      }
+    } catch (err) {
+      setError(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setProcessing(false);
     }
-    if (result.errors.length > 0) {
-      setError(result.errors.join('; '));
-    }
-    setProcessing(false);
   }
 
   // Handle multi-line paste: process each line as a separate statement
@@ -136,29 +141,31 @@ export function RelationshipInput({ characters }: Props) {
       return;
     }
 
-    // Multi-line paste — batch process
+    // Multi-line paste — one batched validation + commit
     setProcessing(true);
     setError(null);
     setSuccess(null);
-    let totalAdded = 0;
-    const allErrors: string[] = [];
+    try {
+      const { added: totalAdded, errors: allErrors } = await addRelationshipsFromLines(
+        lines,
+        characters,
+        note || undefined,
+      );
 
-    for (const line of lines) {
-      const result = await processLine(line);
-      totalAdded += result.added;
-      allErrors.push(...result.errors);
+      if (totalAdded > 0) {
+        await enforceAndAutoPlace();
+        setSuccess(`${totalAdded} relationships from ${lines.length} lines`);
+        setTimeout(() => setSuccess(null), 4000);
+      }
+      if (allErrors.length > 0) {
+        const shown = allErrors.slice(0, 5);
+        setError(shown.join('; ') + (allErrors.length > 5 ? ` (+${allErrors.length - 5} more)` : ''));
+      }
+    } catch (err) {
+      setError(`Paste failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setProcessing(false);
     }
-
-    if (totalAdded > 0) {
-      await enforceAndAutoPlace();
-      setSuccess(`${totalAdded} relationships from ${lines.length} lines`);
-      setTimeout(() => setSuccess(null), 4000);
-    }
-    if (allErrors.length > 0) {
-      const shown = allErrors.slice(0, 5);
-      setError(shown.join('; ') + (allErrors.length > 5 ? ` (+${allErrors.length - 5} more)` : ''));
-    }
-    setProcessing(false);
   }
 
   return (
@@ -249,8 +256,7 @@ export function RelationshipInput({ characters }: Props) {
 
         <div className="text-[10px] text-gray-600 flex gap-3 flex-wrap">
           <span><code className="text-gray-400">A &gt; B</code> higher tier</span>
-          <span><code className="text-gray-400">A &gt;= B</code> same or higher</span>
-          <span><code className="text-gray-400">A = B</code> same tier</span>
+          <span><code className="text-gray-400">A &gt;= B</code> same tier, A first</span>
           <span><code className="text-gray-400">A &gt; B, C, D</code> fan-out</span>
           <span><code className="text-gray-400">A &gt; B &gt; C</code> chain</span>
         </div>

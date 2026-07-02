@@ -309,8 +309,14 @@ function RelationshipRow({
 }) {
   const left = charMap.get(row.leftId);
   const right = charMap.get(row.rightId);
+  const [toggleError, setToggleError] = useState<string | null>(null);
   if (!left || !right) return null;
   const isStrict = row.rel.strict ?? false;
+
+  async function handleToggleStrict() {
+    const result = await updateRelationshipStrict(row.rel.id, !isStrict);
+    setToggleError(result.ok ? null : result.reason);
+  }
   const borderClass = inContradiction
     ? 'border-red-700/70'
     : showRedundancy
@@ -322,7 +328,7 @@ function RelationshipRow({
         <div className="flex items-center gap-2 text-sm flex-wrap">
           <span className="text-white font-medium truncate">{left.name}</span>
           <button
-            onClick={() => updateRelationshipStrict(row.rel.id, !isStrict)}
+            onClick={handleToggleStrict}
             className={`shrink-0 px-1.5 py-0.5 rounded text-xs font-mono border transition-colors cursor-pointer ${
               isStrict
                 ? 'text-orange-400 bg-orange-900/20 border-orange-700/50 hover:bg-orange-900/40'
@@ -348,11 +354,15 @@ function RelationshipRow({
         {row.rel.note && (
           <p className="text-[10px] text-gray-500 italic truncate mt-0.5">{row.rel.note}</p>
         )}
+        {toggleError && (
+          <p className="text-[10px] text-red-400 mt-0.5">Can't change: {toggleError}</p>
+        )}
       </div>
       <button
         onClick={() => deleteRelationship(row.rel.id)}
         className="text-gray-500 hover:text-red-400 text-xs transition-colors shrink-0"
         title="Delete relationship"
+        aria-label={`Delete relationship ${left.name} ${isStrict ? '>' : '>='} ${right.name}`}
       >
         x
       </button>

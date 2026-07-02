@@ -10,12 +10,24 @@ interface HistoryState {
 const past: HistoryState[] = [];
 const future: HistoryState[] = [];
 let listeners: Array<() => void> = [];
+// History is only meaningful within one tier list — restoring list A's
+// assignments while list B is active would overwrite B's placements.
+let contextId: string | null = null;
 
 function notify() {
   for (const fn of listeners) fn();
 }
 
 export const undoManager = {
+  /** Bind history to a tier list; switching lists discards it. */
+  setContext(listId: string | null) {
+    if (listId === contextId) return;
+    contextId = listId;
+    past.length = 0;
+    future.length = 0;
+    notify();
+  },
+
   /** Save current state before a change */
   push(assignments: TierAssignment[], label: string) {
     past.push({ assignments: [...assignments], label });

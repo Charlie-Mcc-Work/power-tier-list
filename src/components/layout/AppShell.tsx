@@ -50,10 +50,8 @@ function DragHandle({ containerRef }: { containerRef: React.RefObject<HTMLDivEle
   );
 }
 
-// With evidence removed there's only one side-pane view (relationships),
-// so TripleLayout and SplitLayout both render the same two-pane shape. We
-// keep both layout modes as switcher options for continuity — they happen
-// to produce identical output until a second side-pane view reappears.
+// With evidence removed there's only one side-pane view (relationships), so
+// the resizable two-pane shape is the only multi-panel layout.
 function TwoPaneLayout() {
   const splitPercent = useUIStore((s) => s.splitPercent);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -75,7 +73,7 @@ function TwoPaneLayout() {
 }
 
 function TabsLayout() {
-  const { activeView } = useUIStore();
+  const activeView = useUIStore((s) => s.activeView);
   return (
     <main className="flex-1 overflow-y-auto p-6">
       {activeView === 'tierlist' && <TierListView />}
@@ -85,7 +83,13 @@ function TabsLayout() {
 }
 
 export function AppShell() {
-  const { layoutMode, setLayoutMode, selectedCharacterId, selectCharacter, activeTierListId } = useUIStore();
+  // Per-field selectors: a whole-store subscription would re-render the
+  // entire app tree on every splitPercent mousemove and search keystroke.
+  const layoutMode = useUIStore((s) => s.layoutMode);
+  const setLayoutMode = useUIStore((s) => s.setLayoutMode);
+  const selectedCharacterId = useUIStore((s) => s.selectedCharacterId);
+  const selectCharacter = useUIStore((s) => s.selectCharacter);
+  const activeTierListId = useUIStore((s) => s.activeTierListId);
 
   useEffect(() => {
     if (activeTierListId) {
@@ -110,7 +114,6 @@ export function AppShell() {
       <NavBar />
       <div className="flex flex-1 overflow-hidden">
         {layoutMode === 'triple' && <TwoPaneLayout />}
-        {layoutMode === 'split' && <TwoPaneLayout />}
         {layoutMode === 'tabs' && <TabsLayout />}
         {selectedCharacterId && (
           <CharacterDetail

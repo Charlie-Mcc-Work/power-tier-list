@@ -13,27 +13,12 @@ export function CycleWarning({ relationships, characters }: Props) {
     [characters],
   );
 
+  // Under the current semantics ANY cycle is unsatisfiable: `>` needs a tier
+  // gap and `>=` needs a position gap within the tier, so no chain can loop
+  // back on itself.
   const unsatisfiableCycles = useMemo(() => {
     if (relationships.length === 0) return [];
-    const graph = buildGraph(relationships);
-    const allCycles = detectCycles(graph);
-
-    // Build a strictness lookup for edges
-    const edgeStrict = new Map<string, boolean>();
-    for (const rel of relationships) {
-      edgeStrict.set(`${rel.superiorId}->${rel.inferiorId}`, rel.strict ?? false);
-    }
-
-    // Only keep cycles that contain at least one strict (>) edge.
-    // A cycle of all non-strict (>=) edges is satisfiable (same tier).
-    return allCycles.filter((cycle) => {
-      for (let i = 0; i < cycle.length; i++) {
-        const from = cycle[i];
-        const to = cycle[(i + 1) % cycle.length];
-        if (edgeStrict.get(`${from}->${to}`)) return true;
-      }
-      return false;
-    });
+    return detectCycles(buildGraph(relationships));
   }, [relationships]);
 
   if (unsatisfiableCycles.length === 0) return null;
@@ -54,7 +39,8 @@ export function CycleWarning({ relationships, characters }: Props) {
         })}
       </ul>
       <p className="text-xs text-gray-400 mt-2">
-        A cycle with a strict (&gt;) edge can't be satisfied. Change one to &gt;= or remove it.
+        Any cycle — strict (&gt;), non-strict (&gt;=), or mixed — is unsatisfiable. Remove one of
+        the relationships in the loop to resolve it.
       </p>
     </div>
   );

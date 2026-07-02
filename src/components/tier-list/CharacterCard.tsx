@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useImage } from '../../hooks/use-image';
-import { useUIStore, CARD_SIZES } from '../../stores/ui-store';
+import { useUIStore, CARD_SIZES, cardHeightEstimate } from '../../stores/ui-store';
 import type { Character } from '../../types';
 
 interface Props {
@@ -16,6 +16,12 @@ interface Props {
   selected?: boolean;
   /** Fired when the card is clicked in select mode. */
   onToggleSelect?: (character: Character) => void;
+  /**
+   * Whether the card should be visually dimmed because it doesn't match the
+   * current search. Computed by the parent (which subscribes to searchQuery
+   * once) so a keystroke doesn't re-render every card via memo.
+   */
+  dim?: boolean;
 }
 
 export const CharacterCard = memo(function CharacterCard({
@@ -25,15 +31,13 @@ export const CharacterCard = memo(function CharacterCard({
   selectMode,
   selected,
   onToggleSelect,
+  dim,
 }: Props) {
   const imageUrl = useImage(character.imageId);
   const selectCharacter = useUIStore((s) => s.selectCharacter);
   const imageDisplay = useUIStore((s) => s.imageDisplay);
   const cardSize = useUIStore((s) => s.cardSize);
-  const searchQuery = useUIStore((s) => s.searchQuery);
   const sizes = CARD_SIZES[cardSize];
-
-  const matchesSearch = !searchQuery || character.name.toLowerCase().includes(searchQuery.toLowerCase());
 
   const {
     attributes,
@@ -47,13 +51,18 @@ export const CharacterCard = memo(function CharacterCard({
     data: { type: 'character', character },
   });
 
-  const style = isDragOverlay
+  const style: React.CSSProperties = isDragOverlay
     ? { width: sizes.card }
     : {
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.3 : 1,
         width: sizes.card,
+        // Skip layout/paint for off-screen cards. With 1k+ cards in one
+        // scrollable container, this is the cheapest way to keep scroll
+        // responsive without true virtualization.
+        contentVisibility: isDragOverlay ? undefined : 'auto',
+        containIntrinsicSize: `${sizes.card}px ${cardHeightEstimate(cardSize)}px`,
       };
 
   // In select mode we drop drag listeners and swap click behavior — the card
@@ -91,7 +100,7 @@ export const CharacterCard = memo(function CharacterCard({
             : 'border-gray-700 hover:border-gray-500 cursor-pointer'
           : 'border-gray-700 hover:border-gray-500 cursor-grab active:cursor-grabbing'}
         ${isDragOverlay ? 'shadow-2xl ring-2 ring-amber-400' : ''}
-        ${!matchesSearch ? 'opacity-15 scale-90' : ''}
+        ${dim ? 'opacity-15 scale-90' : ''}
       `}
     >
       <div

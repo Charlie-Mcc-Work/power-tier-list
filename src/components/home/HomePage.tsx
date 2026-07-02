@@ -25,6 +25,8 @@ export function HomePage() {
 
   async function handleDelete(e: React.MouseEvent, id: string) {
     e.stopPropagation();
+    const name = tierLists.find((tl) => tl.id === id)?.name ?? 'this tier list';
+    if (!window.confirm(`Delete "${name}" and all its characters and relationships? Restorable only from a Backup snapshot.`)) return;
     await deleteTierList(id);
   }
 

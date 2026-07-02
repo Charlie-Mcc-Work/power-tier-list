@@ -14,32 +14,46 @@ export function ImageUploader() {
   const [nameInput, setNameInput] = useState('');
   const [bulkResult, setBulkResult] = useState<{ added: number; skipped: number } | null>(null);
   const [uploadResult, setUploadResult] = useState<{ created: number; matched: number } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleFiles = useCallback(async (files: FileList | File[]) => {
     const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
-    const tierListId = getActiveTierListId();
-    const characters = await db.characters.where('tierListId').equals(tierListId).toArray();
+    if (imageFiles.length === 0) return;
+    setUploading(true);
+    setError(null);
     let created = 0;
     let matched = 0;
 
-    for (const file of imageFiles) {
-      const name = nameFromFilename(file.name);
-      // Try to match to existing character (case-insensitive)
-      const existing = characters.find(
-        (c) => c.name.toLowerCase() === name.toLowerCase(),
-      );
+    try {
+      const tierListId = getActiveTierListId();
+      const characters = await db.characters.where('tierListId').equals(tierListId).toArray();
 
-      if (existing) {
-        await setCharacterImage(existing.id, file);
-        matched++;
-      } else {
-        await addCharacter(name, file);
-        created++;
+      for (const file of imageFiles) {
+        const name = nameFromFilename(file.name);
+        // Try to match to existing character (case-insensitive)
+        const existing = characters.find(
+          (c) => c.name.toLowerCase() === name.toLowerCase(),
+        );
+
+        if (existing) {
+          await setCharacterImage(existing.id, file);
+          matched++;
+        } else {
+          await addCharacter(name, file);
+          created++;
+        }
       }
-    }
 
-    setUploadResult({ created, matched });
-    setTimeout(() => setUploadResult(null), 4000);
+      setUploadResult({ created, matched });
+      setTimeout(() => setUploadResult(null), 4000);
+    } catch (err) {
+      setError(
+        `Upload failed after ${created + matched} of ${imageFiles.length} file(s): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setUploading(false);
+    }
   }, []);
 
   const handleDrop = useCallback(
@@ -56,14 +70,20 @@ export function ImageUploader() {
   async function handleBulkNames() {
     const names = nameInput.split('\n').filter((n) => n.trim());
     if (names.length === 0) return;
-    const result = await addBulkCharactersByName(names);
-    setBulkResult(result);
-    if (result.added > 0) setNameInput('');
-    setTimeout(() => setBulkResult(null), 4000);
+    setError(null);
+    try {
+      const result = await addBulkCharactersByName(names);
+      setBulkResult(result);
+      if (result.added > 0) setNameInput('');
+      setTimeout(() => setBulkResult(null), 4000);
+    } catch (err) {
+      setError(`Add failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   return (
     <div className="mt-4 space-y-2">
+      {error && <p className="text-xs text-red-400">{error}</p>}
       <div className="flex gap-1">
         <button
           onClick={() => setMode('images')}
@@ -114,7 +134,7 @@ export function ImageUploader() {
             onChange={(e) => e.target.files && handleFiles(e.target.files)}
             className="hidden"
           />
-          <p className="text-sm">Drop character images here or click to upload</p>
+          <p className="text-sm">{uploading ? 'Uploading…' : 'Drop character images here or click to upload'}</p>
           <p className="text-xs mt-1 text-gray-500">
             Matches existing characters by filename, or creates new ones
           </p>

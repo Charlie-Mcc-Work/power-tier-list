@@ -66,81 +66,99 @@ export function SnapshotManager() {
     return () => { cancelled = true; };
   }, [open]);
 
-  async function handleCreate() {
+  /** Run an async action under the shared loading flag. A rejection surfaces
+   *  as a message instead of wedging the panel with `loading` stuck true. */
+  async function run(action: () => Promise<void>) {
     setLoading(true);
-    const now = new Date();
-    await createSnapshot(
-      `Manual ${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-      { core: true },
-    );
-    await refresh();
-    setMessage('Snapshot created');
-    setTimeout(() => setMessage(null), 2000);
-    setLoading(false);
+    try {
+      await action();
+    } catch (err) {
+      setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function handleRestore(id: string) {
-    setLoading(true);
-    await restoreSnapshot(id);
-    await refresh();
-    setMessage('Restored! Refresh the page to see changes.');
-    setLoading(false);
+  function handleCreate() {
+    return run(async () => {
+      const now = new Date();
+      await createSnapshot(
+        `Manual ${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        { core: true },
+      );
+      await refresh();
+      setMessage('Snapshot created');
+      setTimeout(() => setMessage(null), 2000);
+    });
   }
 
-  async function handleDelete(id: string) {
-    await deleteSnapshot(id);
-    await refresh();
+  function handleRestore(id: string) {
+    if (!window.confirm(
+      'Restore this snapshot? Your current data is replaced by it (a "Before restore" snapshot is taken first, so this is reversible).',
+    )) return;
+    return run(async () => {
+      await restoreSnapshot(id);
+      await refresh();
+      setMessage('Restored! Refresh the page to see changes.');
+    });
   }
 
-  async function handleClearAll() {
+  function handleDelete(id: string) {
+    return run(async () => {
+      await deleteSnapshot(id);
+      await refresh();
+    });
+  }
+
+  function handleClearAll() {
     if (!window.confirm(
       'Delete ALL in-browser snapshots? Your current tier lists, characters, relationships, and images are NOT affected — only the backup history is wiped. Use this if the app is using too much memory.',
     )) return;
-    setLoading(true);
-    const res = await clearAllSnapshots();
-    await refresh();
-    setLoading(false);
-    setMessage(`Cleared ${res.deleted} snapshot${res.deleted === 1 ? '' : 's'}. Current data untouched.`);
+    return run(async () => {
+      const res = await clearAllSnapshots();
+      await refresh();
+      setMessage(`Cleared ${res.deleted} snapshot${res.deleted === 1 ? '' : 's'}. Current data untouched.`);
+    });
   }
 
-  async function handlePickFolder() {
-    setLoading(true);
-    const res = await pickBackupFolder();
-    await refreshStatus();
-    setLoading(false);
-    setMessage(res.ok ? `Folder set: "${res.name}" — click "Back up now" to write.` : `Not enabled: ${res.reason}`);
+  function handlePickFolder() {
+    return run(async () => {
+      const res = await pickBackupFolder();
+      await refreshStatus();
+      setMessage(res.ok ? `Folder set: "${res.name}" — click "Back up now" to write.` : `Not enabled: ${res.reason}`);
+    });
   }
 
-  async function handleReauthorize() {
-    setLoading(true);
-    const ok = await reauthorizeBackupFolder();
-    await refreshStatus();
-    setLoading(false);
-    setMessage(ok ? 'Folder re-authorized' : 'Re-authorization denied');
+  function handleReauthorize() {
+    return run(async () => {
+      const ok = await reauthorizeBackupFolder();
+      await refreshStatus();
+      setMessage(ok ? 'Folder re-authorized' : 'Re-authorization denied');
+    });
   }
 
-  async function handleClearFolder() {
-    setLoading(true);
-    await clearBackupFolder();
-    await refreshStatus();
-    setLoading(false);
-    setMessage('Backup folder cleared');
+  function handleClearFolder() {
+    return run(async () => {
+      await clearBackupFolder();
+      await refreshStatus();
+      setMessage('Backup folder cleared');
+    });
   }
 
-  async function handleBackupNow() {
-    setLoading(true);
-    const res = await writeBackupNow();
-    await refreshStatus();
-    setLoading(false);
-    setMessage(res.ok ? `Wrote ${res.filename}` : `Backup failed: ${res.reason}`);
+  function handleBackupNow() {
+    return run(async () => {
+      const res = await writeBackupNow();
+      await refreshStatus();
+      setMessage(res.ok ? `Wrote ${res.filename}` : `Backup failed: ${res.reason}`);
+    });
   }
 
-  async function handleDownloadNow() {
-    setLoading(true);
-    const res = await downloadBackupNow();
-    await refreshStatus();
-    setLoading(false);
-    setMessage(res.ok ? `Downloaded ${res.filename}` : `Download failed: ${res.reason}`);
+  function handleDownloadNow() {
+    return run(async () => {
+      const res = await downloadBackupNow();
+      await refreshStatus();
+      setMessage(res.ok ? `Downloaded ${res.filename}` : `Download failed: ${res.reason}`);
+    });
   }
 
   async function handleDownloadFull() {
@@ -161,6 +179,7 @@ export function SnapshotManager() {
           <button
             onClick={() => { setOpen(false); setMessage(null); }}
             className="text-gray-400 hover:text-white transition-colors text-sm"
+            aria-label="Close backups"
           >
             x
           </button>
@@ -344,6 +363,7 @@ export function SnapshotManager() {
                     onClick={() => handleDelete(snap.id)}
                     className="text-gray-600 hover:text-red-400 text-xs transition-colors"
                     title="Delete snapshot"
+                    aria-label="Delete snapshot"
                   >
                     x
                   </button>

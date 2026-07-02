@@ -147,9 +147,8 @@ function solveTiers(
     if (charSet.has(id)) fixedComps.add(find(id));
   }
 
-  // Cascade strict edges at class level. (Strict edges within a class
-  // would have errored out above — this filter just defends against bad
-  // data from making the loop spin.)
+  // Strict edges at class level. (Strict edges within a class errored out
+  // above — this filter just defends against bad data.)
   const strictRels = rels.filter(
     (r) =>
       r.strict &&
@@ -157,57 +156,105 @@ function solveTiers(
       charSet.has(r.inferiorId) &&
       find(r.superiorId) !== find(r.inferiorId),
   );
-  const MAX_ITER = Math.max(100, compTier.size * (maxIdx + 2) * 2 + 10);
-  let iter = 0;
-  let changed = true;
-  while (changed && iter < MAX_ITER) {
-    changed = false;
-    iter++;
-    for (const rel of strictRels) {
-      const supC = find(rel.superiorId);
-      const infC = find(rel.inferiorId);
-      const supT = compTier.get(supC)!;
-      const infT = compTier.get(infC)!;
-      if (supT + 1 > infT) {
-        const canPushInf = !fixedComps.has(infC) && supT + 1 <= maxIdx;
-        const canPushSup = !fixedComps.has(supC) && infT - 1 >= 0;
-        if (canPushInf) {
-          compTier.set(infC, supT + 1);
-          changed = true;
-        } else if (canPushSup) {
-          compTier.set(supC, infT - 1);
-          changed = true;
-        } else if (options.clampOverflow) {
-          // Best-effort: shove inf down as far as the list allows. The
-          // inconsistency banner will flag the remaining violation.
-          if (!fixedComps.has(infC) && infT < maxIdx) {
-            compTier.set(infC, maxIdx);
-            changed = true;
-          } else {
-            // Nothing more to do; leave as-is and bail out of the loop.
-            changed = false;
-            break;
-          }
-        } else {
-          const supName = charNames?.get(rel.superiorId) ?? rel.superiorId;
-          const infName = charNames?.get(rel.inferiorId) ?? rel.inferiorId;
-          const boundary = supT + 1 > maxIdx ? 'bottom' : 'top';
-          return {
-            tierMap: compToTierMap(charSet, compTier, find),
-            find,
-            error: `${supName} > ${infName} — no room at the ${boundary} of the list`,
-          };
-        }
-      }
+
+  // The class graph is a DAG (SCC-checked above), so solve in two
+  // topological passes rather than iterative violation-repair — a greedy
+  // repair loop can oscillate between "push inferior down" and "pull
+  // superior up" forever and falsely report a satisfiable move as blocked.
+  //   Pass 1 (reverse topo): the *ceiling* for each class — the deepest
+  //     index it may sit at while everything strictly below it still fits.
+  //   Pass 2 (topo): assign — start from the seed, push down below
+  //     superiors, pull up to the ceiling only when forced.
+
+  const classes = new Set<string>();
+  for (const id of charSet) classes.add(find(id));
+
+  const succ = new Map<string, Array<{ c: string; rel: Constraint }>>();
+  const pred = new Map<string, Array<{ c: string; rel: Constraint }>>();
+  const inDeg = new Map<string, number>();
+  for (const c of classes) inDeg.set(c, 0);
+  for (const rel of strictRels) {
+    const supC = find(rel.superiorId);
+    const infC = find(rel.inferiorId);
+    if (!succ.has(supC)) succ.set(supC, []);
+    succ.get(supC)!.push({ c: infC, rel });
+    if (!pred.has(infC)) pred.set(infC, []);
+    pred.get(infC)!.push({ c: supC, rel });
+    inDeg.set(infC, inDeg.get(infC)! + 1);
+  }
+
+  const topo: string[] = [];
+  for (const [c, d] of inDeg) if (d === 0) topo.push(c);
+  for (let i = 0; i < topo.length; i++) {
+    for (const { c: s } of succ.get(topo[i]) ?? []) {
+      const d = inDeg.get(s)! - 1;
+      inDeg.set(s, d);
+      if (d === 0) topo.push(s);
     }
   }
 
-  if (iter >= MAX_ITER) {
+  const fail = (rel: Constraint, boundary: 'top' | 'bottom'): SolveResult => {
+    const supName = charNames?.get(rel.superiorId) ?? rel.superiorId;
+    const infName = charNames?.get(rel.inferiorId) ?? rel.inferiorId;
     return {
       tierMap: compToTierMap(charSet, compTier, find),
       find,
-      error: 'Constraints could not be satisfied (iteration cap)',
+      error: `${supName} > ${infName} — no room at the ${boundary} of the list`,
     };
+  };
+
+  // Pass 1 — ceilings, in reverse topological order.
+  const ceil = new Map<string, number>();
+  for (let i = topo.length - 1; i >= 0; i--) {
+    const c = topo[i];
+    const pinned = fixedComps.has(c);
+    let cv = pinned ? compTier.get(c)! : maxIdx;
+    for (const { c: s, rel } of succ.get(c) ?? []) {
+      const limit = ceil.get(s)! - 1;
+      if (limit < cv) {
+        if (!options.clampOverflow && (pinned || limit < 0)) {
+          // The chain strictly below this class doesn't fit in the list.
+          return fail(rel, 'bottom');
+        }
+        cv = pinned ? cv : Math.max(limit, 0);
+      }
+    }
+    ceil.set(c, cv);
+  }
+
+  // Pass 2 — assignment, in topological order.
+  for (const c of topo) {
+    let floor = 0;
+    let forcedBy: Constraint | null = null;
+    for (const { c: p, rel } of pred.get(c) ?? []) {
+      const f = compTier.get(p)! + 1; // preds are already assigned
+      if (f > floor) {
+        floor = f;
+        forcedBy = rel;
+      }
+    }
+
+    if (fixedComps.has(c)) {
+      if (floor > compTier.get(c)! && !options.clampOverflow) {
+        // A strict chain above doesn't fit between the top and this pin.
+        return fail(forcedBy!, 'top');
+      }
+      continue; // pinned — clamp mode leaves the violation for the banner
+    }
+
+    const cv = ceil.get(c)!;
+    if (floor > cv) {
+      if (!options.clampOverflow) {
+        return fail(forcedBy!, floor > maxIdx ? 'bottom' : 'top');
+      }
+      // Best-effort: push down as far as the list allows; the
+      // inconsistency banner will flag the remaining violation.
+      compTier.set(c, Math.min(floor, maxIdx));
+      continue;
+    }
+
+    const seeded = Math.max(compTier.get(c)!, floor);
+    compTier.set(c, Math.min(seeded, cv));
   }
 
   return { tierMap: compToTierMap(charSet, compTier, find), find };
@@ -234,6 +281,44 @@ function compToTierMap(
   const tm = new Map<string, number>();
   for (const id of charSet) tm.set(id, compTier.get(find(id)) ?? 0);
   return tm;
+}
+
+/**
+ * Characters reachable from `starts` over relationship edges (undirected),
+ * restricted to `universe`. Used to scope enforcement: characters with no
+ * path to the action can't be affected by it — and a contradiction among
+ * them shouldn't block it either.
+ */
+function reachableChars(
+  starts: Iterable<string>,
+  rels: Constraint[],
+  universe: Set<string>,
+): Set<string> {
+  const adj = new Map<string, string[]>();
+  for (const r of rels) {
+    if (!universe.has(r.superiorId) || !universe.has(r.inferiorId)) continue;
+    if (!adj.has(r.superiorId)) adj.set(r.superiorId, []);
+    adj.get(r.superiorId)!.push(r.inferiorId);
+    if (!adj.has(r.inferiorId)) adj.set(r.inferiorId, []);
+    adj.get(r.inferiorId)!.push(r.superiorId);
+  }
+  const seen = new Set<string>();
+  const queue: string[] = [];
+  for (const s of starts) {
+    if (universe.has(s) && !seen.has(s)) {
+      seen.add(s);
+      queue.push(s);
+    }
+  }
+  for (let i = 0; i < queue.length; i++) {
+    for (const n of adj.get(queue[i]) ?? []) {
+      if (!seen.has(n)) {
+        seen.add(n);
+        queue.push(n);
+      }
+    }
+  }
+  return seen;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -286,13 +371,18 @@ export function enforceAfterMove(
   const movedName = charNames?.get(movedCharId) ?? movedCharId.slice(0, 8);
   log.info('enforce', `move ${movedName} → tier "${targetTier}" (idx ${targetIdx})`);
 
-  const solved = solveTiers(placedSet, rels, seed, fix, maxIdx, charNames);
+  // Solve only the moved character's connected component. Characters with no
+  // relationship path to it can't be affected by this move — and a
+  // contradiction among them (e.g. from an import) shouldn't block it.
+  const component = reachableChars([movedCharId], rels, placedSet);
+  const solved = solveTiers(component, rels, seed, fix, maxIdx, charNames);
   if (solved.error) return { ok: false, reason: solved.error };
 
+  const untouched = currentAssignments.filter((a) => !component.has(a.characterId));
   return {
     ok: true,
     assignments: enforceWithinTierOrder(
-      rebuildAssignments(solved.tierMap, currentAssignments, tierIds),
+      [...untouched, ...rebuildAssignments(solved.tierMap, currentAssignments, tierIds)],
       relationships,
     ),
   };
@@ -315,27 +405,22 @@ export function autoPlaceAndEnforce(
   const maxIdx = tierIds.length - 1;
   if (relationships.length === 0) return currentAssignments;
 
-  // Every character that appears on either side of a relationship and is in
-  // the active tier list belongs to the solver. Unranked chars without any
-  // rel stay where they are (outside the solver's world).
-  const inRels = new Set<string>();
-  for (const rel of relationships) {
-    if (allCharacterIds.has(rel.superiorId)) inRels.add(rel.superiorId);
-    if (allCharacterIds.has(rel.inferiorId)) inRels.add(rel.inferiorId);
-  }
-  const charSet = new Set<string>();
-  for (const a of currentAssignments) charSet.add(a.characterId);
-  for (const id of inRels) charSet.add(id);
-
-  const seed = new Map<string, number>();
-  for (const a of currentAssignments) seed.set(a.characterId, toIdx(a.tier, tierIds));
-  // Unranked chars: no seed → default to 0 (top). Cascade pushes down.
-
   const rels: Constraint[] = relationships.map((r) => ({
     superiorId: r.superiorId,
     inferiorId: r.inferiorId,
     strict: r.strict ?? false,
   }));
+
+  // Only characters connected (transitively) to a placed one get pulled onto
+  // the board — a relationship between two fully-unranked characters says
+  // nothing about where they belong, so both stay unranked.
+  const placed = new Set(currentAssignments.map((a) => a.characterId));
+  const charSet = reachableChars(placed, rels, allCharacterIds);
+  for (const id of placed) charSet.add(id);
+
+  const seed = new Map<string, number>();
+  for (const a of currentAssignments) seed.set(a.characterId, toIdx(a.tier, tierIds));
+  // Unranked chars: no seed → default to 0 (top). Cascade pushes down.
 
   const solved = solveTiers(charSet, rels, seed, new Map(), maxIdx, undefined, {
     clampOverflow: true,

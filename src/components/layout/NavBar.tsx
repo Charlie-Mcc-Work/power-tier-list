@@ -19,7 +19,6 @@ const tabs: { view: AppView; label: string }[] = [
 
 const layouts: { mode: LayoutMode; label: string; title: string }[] = [
   { mode: 'triple', label: '|||', title: 'All panels' },
-  { mode: 'split', label: '|+', title: 'Tier list + side pane' },
   { mode: 'tabs', label: '[ ]', title: 'Single view' },
 ];
 
@@ -31,14 +30,28 @@ const imageDisplayOptions: { mode: ImageDisplayMode; label: string; title: strin
 const cardSizeOptions: CardSize[] = ['xs', 'sm', 'md', 'lg'];
 
 export function NavBar() {
-  const {
-    activeView, setActiveView, layoutMode, setLayoutMode,
-    imageDisplay, setImageDisplay, cardSize, setCardSize,
-    setPresenting, navigateHome, showTierCounts, setShowTierCounts,
-    searchQuery, setSearchQuery,
-    setHelpOpen, setSnapshotsOpen, setSyncOpen, setCopyTextOpen,
-    activeTierListId, openTierList,
-  } = useUIStore();
+  // Per-field selectors — a whole-store subscription would re-render the
+  // navbar on every splitPercent mousemove while dragging the divider.
+  const activeView = useUIStore((s) => s.activeView);
+  const setActiveView = useUIStore((s) => s.setActiveView);
+  const layoutMode = useUIStore((s) => s.layoutMode);
+  const setLayoutMode = useUIStore((s) => s.setLayoutMode);
+  const imageDisplay = useUIStore((s) => s.imageDisplay);
+  const setImageDisplay = useUIStore((s) => s.setImageDisplay);
+  const cardSize = useUIStore((s) => s.cardSize);
+  const setCardSize = useUIStore((s) => s.setCardSize);
+  const setPresenting = useUIStore((s) => s.setPresenting);
+  const navigateHome = useUIStore((s) => s.navigateHome);
+  const showTierCounts = useUIStore((s) => s.showTierCounts);
+  const setShowTierCounts = useUIStore((s) => s.setShowTierCounts);
+  const searchQuery = useUIStore((s) => s.searchQuery);
+  const setSearchQuery = useUIStore((s) => s.setSearchQuery);
+  const setHelpOpen = useUIStore((s) => s.setHelpOpen);
+  const setSnapshotsOpen = useUIStore((s) => s.setSnapshotsOpen);
+  const setSyncOpen = useUIStore((s) => s.setSyncOpen);
+  const setCopyTextOpen = useUIStore((s) => s.setCopyTextOpen);
+  const activeTierListId = useUIStore((s) => s.activeTierListId);
+  const openTierList = useUIStore((s) => s.openTierList);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -160,9 +173,10 @@ export function NavBar() {
 
       if (wantsReplace && activeTierListId) {
         const summary = await importSingleListReplace(activeTierListId, detected.data);
+        const warn = summary.warnings.length ? ` — ${summary.warnings.join(' · ')}` : '';
         setStatus({
           kind: 'ok',
-          text: `Replaced current list with "${listName}": ${summary.characters} character${summary.characters === 1 ? '' : 's'}, ${summary.relationships} relationship${summary.relationships === 1 ? '' : 's'}, ${summary.images} image${summary.images === 1 ? '' : 's'}`,
+          text: `Replaced current list with "${listName}": ${summary.characters} character${summary.characters === 1 ? '' : 's'}, ${summary.relationships} relationship${summary.relationships === 1 ? '' : 's'}, ${summary.images} image${summary.images === 1 ? '' : 's'}${warn}`,
         });
         return;
       }
@@ -175,9 +189,10 @@ export function NavBar() {
       const summary = await importSingleListAsNew(detected.data);
       // Hop to the new list so the user sees it immediately.
       openTierList(summary.newTierListId);
+      const warn = summary.warnings.length ? ` — ${summary.warnings.join(' · ')}` : '';
       setStatus({
         kind: 'ok',
-        text: `Added "${listName}": ${summary.characters} character${summary.characters === 1 ? '' : 's'}, ${summary.relationships} relationship${summary.relationships === 1 ? '' : 's'}, ${summary.images} image${summary.images === 1 ? '' : 's'}`,
+        text: `Added "${listName}": ${summary.characters} character${summary.characters === 1 ? '' : 's'}, ${summary.relationships} relationship${summary.relationships === 1 ? '' : 's'}, ${summary.images} image${summary.images === 1 ? '' : 's'}${warn}`,
       });
     } catch (err) {
       setStatus({ kind: 'err', text: `Import failed: ${err instanceof Error ? err.message : String(err)}` });

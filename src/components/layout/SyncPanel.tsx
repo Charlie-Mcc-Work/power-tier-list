@@ -116,6 +116,7 @@ export function SyncPanel() {
           <button
             onClick={() => { setOpen(false); setStatus(null); setShareUrl(null); }}
             className="text-gray-400 hover:text-white transition-colors text-sm"
+            aria-label="Close sync panel"
           >
             x
           </button>

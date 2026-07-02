@@ -1,6 +1,7 @@
 import { db } from './database';
 import type { Snapshot } from './database';
 import type { Character, TierList, Relationship, ImageBlob } from '../types';
+import { buildGraph, detectCycles } from '../lib/graph';
 
 interface ExportData {
   version: 1;
@@ -118,6 +119,8 @@ export interface ImportSummary {
   characters: number;
   relationships: number;
   images: number;
+  /** Data problems found in the file — dropped junk rows and kept-but-unsatisfiable cycles. */
+  warnings: string[];
 }
 
 export type ImportMode = 'merge' | 'replace';
@@ -144,7 +147,60 @@ function stripLegacyEvidenceIds(rel: Relationship): Relationship {
   return copy;
 }
 
-async function applyImportedData(data: ExportData, mode: ImportMode): Promise<void> {
+/**
+ * The add-relationship path validates every edge, but imported files bypass
+ * it. Drop rows that are unambiguously junk (self-relationships, duplicate
+ * pairs) and *report* cycles — any cycle is unsatisfiable, but which edge to
+ * remove is the user's call, so cycles are kept and surfaced as a warning
+ * pointing at the Contradictions view.
+ */
+function sanitizeImportedRelationships(
+  rels: Relationship[],
+  nameOf: (charId: string) => string,
+): { clean: Relationship[]; warnings: string[] } {
+  const clean: Relationship[] = [];
+  const warnings: string[] = [];
+  const seenPairs = new Set<string>();
+
+  for (const r of rels) {
+    if (r.superiorId === r.inferiorId) {
+      warnings.push(`Dropped self-relationship on ${nameOf(r.superiorId)}`);
+      continue;
+    }
+    const key = `${r.tierListId}:${r.superiorId}->${r.inferiorId}`;
+    if (seenPairs.has(key)) {
+      warnings.push(
+        `Dropped duplicate ${nameOf(r.superiorId)} ${r.strict ? '>' : '>='} ${nameOf(r.inferiorId)}`,
+      );
+      continue;
+    }
+    seenPairs.add(key);
+    clean.push(r);
+  }
+
+  const byList = new Map<string, Relationship[]>();
+  for (const r of clean) {
+    if (!byList.has(r.tierListId)) byList.set(r.tierListId, []);
+    byList.get(r.tierListId)!.push(r);
+  }
+  const cycleDescs: string[] = [];
+  for (const listRels of byList.values()) {
+    for (const scc of detectCycles(buildGraph(listRels))) {
+      cycleDescs.push(scc.map(nameOf).join(' → '));
+    }
+  }
+  if (cycleDescs.length > 0) {
+    warnings.push(
+      `File contains ${cycleDescs.length} relationship cycle${cycleDescs.length === 1 ? '' : 's'} (unsatisfiable): ` +
+        `${cycleDescs.slice(0, 3).join('; ')}${cycleDescs.length > 3 ? '; …' : ''}. ` +
+        'Imported anyway — resolve them in the Contradictions view.',
+    );
+  }
+
+  return { clean, warnings };
+}
+
+async function applyImportedData(data: ExportData, mode: ImportMode): Promise<string[]> {
   // Partial snapshots leave the images table alone (both in merge AND replace
   // mode — a partial file has no images to use as a replacement, so wiping
   // them would just break image refs).
@@ -165,7 +221,11 @@ async function applyImportedData(data: ExportData, mode: ImportMode): Promise<vo
 
   // Pre-v6 rels had an evidenceIds field we no longer use. Strip it on the way
   // in so old export files and old snapshots still load cleanly.
-  const cleanedRels: Relationship[] = (data.relationships ?? []).map((r) => stripLegacyEvidenceIds(r));
+  const charNames = new Map((data.characters ?? []).map((c) => [c.id, c.name]));
+  const { clean: cleanedRels, warnings } = sanitizeImportedRelationships(
+    (data.relationships ?? []).map((r) => stripLegacyEvidenceIds(r)),
+    (id) => charNames.get(id) ?? id.slice(0, 8),
+  );
 
   await db.transaction('rw', tables, async () => {
     if (mode === 'replace') {
@@ -190,6 +250,8 @@ async function applyImportedData(data: ExportData, mode: ImportMode): Promise<vo
     }
     await Promise.all(writes);
   });
+
+  return warnings;
 }
 
 export async function importData(
@@ -221,13 +283,14 @@ export async function importData(
     throw new Error('File does not look like a tier-list export (missing required fields)');
   }
 
-  await applyImportedData(data, mode);
+  const warnings = await applyImportedData(data, mode);
 
   return {
     tierLists: data.tierLists.length,
     characters: data.characters.length,
     relationships: (data.relationships ?? []).length,
     images: (data.images ?? []).length,
+    warnings,
   };
 }
 
@@ -410,13 +473,18 @@ export async function importSingleListReplace(
     })),
     updatedAt: now,
   };
-  const newRels: Relationship[] = data.relationships.map((r) => ({
+  const remappedRels: Relationship[] = data.relationships.map((r) => ({
     ...stripLegacyEvidenceIds(r),
     id: relIdMap.get(r.id)!,
     tierListId: targetTierListId,
     superiorId: charIdMap.get(r.superiorId) ?? r.superiorId,
     inferiorId: charIdMap.get(r.inferiorId) ?? r.inferiorId,
   }));
+  const charNames = new Map(newChars.map((c) => [c.id, c.name]));
+  const { clean: newRels, warnings } = sanitizeImportedRelationships(
+    remappedRels,
+    (id) => charNames.get(id) ?? id.slice(0, 8),
+  );
 
   await db.transaction(
     'rw',
@@ -437,6 +505,7 @@ export async function importSingleListReplace(
     characters: newChars.length,
     relationships: newRels.length,
     images: data.images.length,
+    warnings,
   };
 }
 
@@ -479,13 +548,18 @@ export async function importSingleListAsNew(
     })),
     updatedAt: now,
   };
-  const newRels: Relationship[] = data.relationships.map((r) => ({
+  const remappedRels: Relationship[] = data.relationships.map((r) => ({
     ...stripLegacyEvidenceIds(r),
     id: relIdMap.get(r.id)!,
     tierListId: newTierListId,
     superiorId: charIdMap.get(r.superiorId) ?? r.superiorId,
     inferiorId: charIdMap.get(r.inferiorId) ?? r.inferiorId,
   }));
+  const charNames = new Map(newChars.map((c) => [c.id, c.name]));
+  const { clean: newRels, warnings } = sanitizeImportedRelationships(
+    remappedRels,
+    (id) => charNames.get(id) ?? id.slice(0, 8),
+  );
 
   await db.transaction(
     'rw',
@@ -502,6 +576,7 @@ export async function importSingleListAsNew(
     characters: newChars.length,
     relationships: newRels.length,
     images: data.images.length,
+    warnings,
     newTierListId,
   };
 }

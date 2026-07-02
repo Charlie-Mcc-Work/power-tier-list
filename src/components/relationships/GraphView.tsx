@@ -1,5 +1,6 @@
 import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import dagre from '@dagrejs/dagre';
+import { readableTextOn } from '../../lib/color';
 import type { Relationship, Character, TierList } from '../../types';
 import { DEFAULT_TIER_DEFS } from '../../types';
 
@@ -104,6 +105,7 @@ export function GraphView({ relationships, characters, tierList }: Props) {
    * Shows the structure of the relationship graph in isolation.
    */
   const dagLayout = useMemo<ComputedLayout | null>(() => {
+    if (mode !== 'dag') return null; // dagre layout is expensive — only compute when shown
     if (relationships.length === 0) return null;
     const g = new dagre.graphlib.Graph();
     g.setGraph({ rankdir: 'TB', ranksep: 60, nodesep: 30 });
@@ -164,7 +166,7 @@ export function GraphView({ relationships, characters, tierList }: Props) {
       width: isFinite(maxX) ? maxX - minX : 0,
       height: isFinite(maxY) ? maxY - minY : 0,
     };
-  }, [relationships, charMap]);
+  }, [mode, relationships, charMap]);
 
   /**
    * Tier-layered layout. Each tier in `tierDefs` order gets a horizontal row;
@@ -340,10 +342,17 @@ export function GraphView({ relationships, characters, tierList }: Props) {
     if (!canvas || !container || !layout) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = container.clientWidth * dpr;
-    canvas.height = container.clientHeight * dpr;
-    canvas.style.width = `${container.clientWidth}px`;
-    canvas.style.height = `${container.clientHeight}px`;
+    // Assigning canvas.width/height reallocates the backing store even when
+    // the value is unchanged — skip it on pure pan/zoom redraws (this effect
+    // runs per mousemove while panning).
+    const targetW = Math.round(container.clientWidth * dpr);
+    const targetH = Math.round(container.clientHeight * dpr);
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+      canvas.style.width = `${container.clientWidth}px`;
+      canvas.style.height = `${container.clientHeight}px`;
+    }
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -369,7 +378,8 @@ export function GraphView({ relationships, characters, tierList }: Props) {
       ctx.roundRect(labelPad, band.y + labelPad, ROW_LABEL_WIDTH - labelPad * 2, labelH, 4);
       ctx.fill();
 
-      ctx.fillStyle = isUnranked ? '#bbb' : '#141414';
+      const labelText = isUnranked ? '#bbb' : readableTextOn(band.color);
+      ctx.fillStyle = labelText;
       ctx.font = '600 13px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -377,7 +387,9 @@ export function GraphView({ relationships, characters, tierList }: Props) {
 
       // Count underneath
       ctx.font = '10px system-ui, sans-serif';
-      ctx.fillStyle = isUnranked ? 'rgba(187,187,187,0.6)' : 'rgba(20,20,20,0.6)';
+      ctx.fillStyle = isUnranked
+        ? 'rgba(187,187,187,0.6)'
+        : labelText === '#141414' ? 'rgba(20,20,20,0.6)' : 'rgba(245,245,245,0.6)';
       ctx.fillText(`${band.count}`, ROW_LABEL_WIDTH / 2, band.y + band.height / 2 + 9);
     }
 

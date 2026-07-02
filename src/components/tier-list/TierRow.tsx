@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { CharacterCard } from './CharacterCard';
@@ -10,6 +10,7 @@ import {
   renameTierDef,
   reorderTierDefs,
 } from '../../hooks/use-tier-list';
+import { readableTextOn } from '../../lib/color';
 import type { Character, TierDefinition } from '../../types';
 
 const TIER_PALETTE = [
@@ -35,7 +36,9 @@ interface Props {
   onInsertedTier?: (id: string) => void;
 }
 
-export function TierRow({
+// Memoized: during a drag, TierListView re-renders per pointer move for the
+// hover highlight — rows whose props are unchanged must not re-render.
+export const TierRow = memo(function TierRow({
   tierDef,
   characters,
   characterIds,
@@ -52,6 +55,8 @@ export function TierRow({
     data: { type: 'tier', tier: tierDef.id },
   });
   const showTierCounts = useUIStore((s) => s.showTierCounts);
+  const searchQuery = useUIStore((s) => s.searchQuery);
+  const searchLower = searchQuery.toLowerCase();
   const showHighlight = isOver || highlighted;
 
   const [localEditing, setLocalEditing] = useState(false);
@@ -107,6 +112,10 @@ export function TierRow({
 
   async function handleDelete() {
     if (totalTiers <= 1) return;
+    if (
+      characters.length > 0 &&
+      !window.confirm(`Remove tier "${tierDef.name}"? Its ${characters.length} character${characters.length !== 1 ? 's' : ''} move to Unranked.`)
+    ) return;
     await removeTierDef(tierDef.id);
   }
 
@@ -123,7 +132,7 @@ export function TierRow({
         className="w-16 shrink-0 flex flex-col items-center justify-center font-bold relative"
         style={{
           backgroundColor: tierDef.color,
-          color: '#141414',
+          color: readableTextOn(tierDef.color),
         }}
       >
         {editing ? (
@@ -216,13 +225,17 @@ export function TierRow({
       >
         <div className="flex-1 flex items-center gap-2 p-2 flex-wrap min-h-[88px]">
           {characters.map((char) => (
-            <CharacterCard key={char.id} character={char} />
+            <CharacterCard
+              key={char.id}
+              character={char}
+              dim={searchLower !== '' && !char.name.toLowerCase().includes(searchLower)}
+            />
           ))}
         </div>
       </SortableContext>
     </div>
   );
-}
+});
 
 function TierIconButton({
   title,
@@ -241,6 +254,7 @@ function TierIconButton({
     <button
       type="button"
       title={title}
+      aria-label={title}
       onClick={onClick}
       disabled={disabled}
       className={`w-5 h-5 flex items-center justify-center rounded text-[10px] leading-none

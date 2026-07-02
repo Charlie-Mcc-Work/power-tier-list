@@ -195,6 +195,17 @@ describe('autoPlaceAndEnforce', () => {
     expect(tierOf(result, 'B')).toBe('C');
   });
 
+  it('leaves fully-unranked related characters unranked', () => {
+    // A >= B with neither placed — no anchor to the board, so neither should
+    // be yanked into the top tier.
+    const initial = [at('X', 'S')];
+    const rels = [rel('A', 'B', false)];
+    const result = autoPlaceAndEnforce(initial, rels, new Set(['X', 'A', 'B']), TIERS);
+    expect(tierOf(result, 'A')).toBeUndefined();
+    expect(tierOf(result, 'B')).toBeUndefined();
+    expect(tierOf(result, 'X')).toBe('S');
+  });
+
   it('clamps to bottom tier when overflow would occur', () => {
     // 7-deep chain placed top-down should clamp at bottom for the deepest node.
     const chain = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
@@ -314,6 +325,37 @@ describe('enforceAfterMove — cross-dependency stress tests', () => {
     // With 6 tiers and a 5-step strict chain starting at D (idx 3), we need
     // positions 3,4,5,6,7 — only 3,4,5 are valid, so E would be clamped → blocked.
     expect(result.ok).toBe(false);
+  });
+
+  it('a contradiction in an unrelated component does not block a move', () => {
+    // P/Q carry a strict-within-class contradiction (P > Q and P >= Q), but
+    // they have no path to A — dragging A must still work.
+    const initial = [at('A', 'B'), at('B', 'C'), at('P', 'D'), at('Q', 'D', 1)];
+    const rels = [rel('A', 'B'), rel('P', 'Q', true), rel('P', 'Q', false)];
+    const result = enforceAfterMove(initial, rels, 'A', 'S', TIERS);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(tierOf(result.assignments, 'A')).toBe('S');
+      expect(tierOf(result.assignments, 'P')).toBe('D');
+      expect(tierOf(result.assignments, 'Q')).toBe('D');
+    }
+  });
+
+  it('recovers a satisfiable solution from an inconsistent stored state', () => {
+    // X > A > B, but all three stored in the bottom tier — a recoverable
+    // inconsistency (reachable via tier reorder or import). Drag B to idx 2:
+    // X:S, A:A, B:B satisfies everything. The old greedy repair loop
+    // oscillated A between "below X" and "above B" until the iteration cap
+    // and falsely blocked the move.
+    const initial = [at('X', 'F'), at('A', 'F', 1), at('B', 'F', 2)];
+    const rels = [rel('X', 'A'), rel('A', 'B')];
+    const result = enforceAfterMove(initial, rels, 'B', 'B', TIERS);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(tierOf(result.assignments, 'B')).toBe('B');
+      expect(tierOf(result.assignments, 'A')).toBe('A');
+      expect(tierOf(result.assignments, 'X')).toBe('S');
+    }
   });
 });
 

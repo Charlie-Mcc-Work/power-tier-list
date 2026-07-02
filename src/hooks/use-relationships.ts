@@ -5,7 +5,8 @@ import { resolveUnique } from '../lib/fuzzy-match';
 import { parseChain, isParseError, type ParsedPair } from '../lib/relationship-parser';
 import { buildGraph, detectCycles, findUnsatisfiableCycle } from '../lib/graph';
 import { maxChainLength, longestChainPath } from '../lib/enforce-constraints';
-import { getActiveTierListId } from './use-tier-list';
+import { getActiveTierListId, enforceAndAutoPlace } from './use-tier-list';
+import { log } from '../lib/logger';
 import { useUIStore } from '../stores/ui-store';
 import { DEFAULT_TIER_DEFS } from '../types';
 
@@ -15,48 +16,6 @@ export function useRelationships(): Relationship[] {
     () => db.relationships.where('tierListId').equals(tierListId).toArray(),
     [tierListId],
   ) ?? [];
-}
-
-export async function addRelationship(
-  superiorId: string,
-  inferiorId: string,
-  strict: boolean,
-  note?: string,
-): Promise<{ id: string } | { cycleError: string }> {
-  const tierListId = getActiveTierListId();
-
-  const existing = await db.relationships
-    .where('[superiorId+inferiorId]')
-    .equals([superiorId, inferiorId])
-    .first();
-  if (existing) return { id: existing.id };
-
-  // Cycle check scoped to this tier list's relationships
-  const allRels = await db.relationships.where('tierListId').equals(tierListId).toArray();
-  const graph = buildGraph(allRels);
-  if (!graph.has(superiorId)) graph.set(superiorId, new Set());
-  if (!graph.has(inferiorId)) graph.set(inferiorId, new Set());
-
-  const cyclePath = findUnsatisfiableCycle(graph, superiorId, inferiorId);
-  if (cyclePath) {
-    const chars = await db.characters.bulkGet(cyclePath);
-    const names = cyclePath.map((id, i) => chars[i]?.name ?? id);
-    return {
-      cycleError: `Would create a cycle: ${names.join(' > ')} > ${names[0]}`,
-    };
-  }
-
-  const id = crypto.randomUUID();
-  await db.relationships.add({
-    id,
-    tierListId,
-    superiorId,
-    inferiorId,
-    strict,
-    note,
-    createdAt: Date.now(),
-  });
-  return { id };
 }
 
 // ── Dry-run cycle checker ──────────────────────────────────────────────
@@ -353,30 +312,28 @@ function describeResolve(
   return `Ambiguous: "${name}" could be ${preview}${more} — type the full name`;
 }
 
-export async function addRelationshipsFromChain(
+interface PendingAdd {
+  superiorId: string;
+  inferiorId: string;
+  strict: boolean;
+}
+
+/**
+ * Parse one chain statement and dry-run it against the shared `dryState`,
+ * committing accepted pairs into the state (so later statements in the same
+ * batch validate against them). Returns the pairs to write plus any errors.
+ */
+function processChainAgainstState(
   chain: string,
   characters: Character[],
-  note?: string,
-): Promise<{ added: number; errors: string[] }> {
-  const t0 = performance.now();
+  dryState: DryRunState,
+  tierCount: number,
+): { adds: PendingAdd[]; errors: string[] } {
   const parsed = parseChain(chain);
-  if (isParseError(parsed)) return { added: 0, errors: [parsed.error] };
-
-  const tierListId = getActiveTierListId();
-  const [allRels, tierList] = await Promise.all([
-    db.relationships.where('tierListId').equals(tierListId).toArray(),
-    db.tierLists.get(tierListId),
-  ]);
-  const tierCount = (tierList?.tierDefs ?? DEFAULT_TIER_DEFS).length;
-  const dryState = initDryRun(allRels, characters);
+  if (isParseError(parsed)) return { adds: [], errors: [parsed.error] };
 
   const groups = groupMirrorPairs(parsed.pairs);
   const errors: string[] = [];
-  interface PendingAdd {
-    superiorId: string;
-    inferiorId: string;
-    strict: boolean;
-  }
   const toAdd: PendingAdd[] = [];
 
   for (const group of groups) {
@@ -432,64 +389,178 @@ export async function addRelationshipsFromChain(
     toAdd.push(...groupAdds);
   }
 
-  // Commit all accepted adds in a single transaction.
-  if (toAdd.length > 0) {
-    await db.transaction('rw', db.relationships, async () => {
-      const now = Date.now();
-      for (const p of toAdd) {
-        const existing = await db.relationships
-          .where('[superiorId+inferiorId]')
-          .equals([p.superiorId, p.inferiorId])
-          .first();
-        if (existing) continue;
-        await db.relationships.add({
-          id: crypto.randomUUID(),
-          tierListId,
-          superiorId: p.superiorId,
-          inferiorId: p.inferiorId,
-          strict: p.strict,
-          note,
-          createdAt: now,
-        });
-      }
-    });
-  }
-
-  const elapsed = performance.now() - t0;
-  if (elapsed > 150) {
-    console.info(`[relationships] addRelationshipsFromChain took ${Math.round(elapsed)}ms for ${toAdd.length} write(s)`);
-  }
-  return { added: toAdd.length, errors };
+  return { adds: toAdd, errors };
 }
 
-export async function addBulkRelationshipsFromStatements(
-  statements: string[],
-  characters: Character[],
-): Promise<{ added: number; errors: Array<{ line: number; text: string; error: string }> }> {
-  const errors: Array<{ line: number; text: string; error: string }> = [];
-  let added = 0;
-
-  for (let i = 0; i < statements.length; i++) {
-    const statement = statements[i].trim();
-    if (!statement || statement.startsWith('#') || statement.startsWith('//')) continue;
-
-    const result = await addRelationshipsFromChain(statement, characters);
-    added += result.added;
-    for (const err of result.errors) {
-      errors.push({ line: i + 1, text: statement, error: err });
+/** Commit accepted pairs in a single transaction. */
+async function commitPendingAdds(
+  tierListId: string,
+  toAdd: PendingAdd[],
+  note?: string,
+): Promise<void> {
+  if (toAdd.length === 0) return;
+  await db.transaction('rw', db.relationships, async () => {
+    const now = Date.now();
+    for (const p of toAdd) {
+      const existing = await db.relationships
+        .where('[superiorId+inferiorId]')
+        .equals([p.superiorId, p.inferiorId])
+        .first();
+      if (existing) continue;
+      await db.relationships.add({
+        id: crypto.randomUUID(),
+        tierListId,
+        superiorId: p.superiorId,
+        inferiorId: p.inferiorId,
+        strict: p.strict,
+        note,
+        createdAt: now,
+      });
     }
-  }
+  });
+}
 
-  return { added, errors };
+async function loadChainContext(characters: Character[]) {
+  const tierListId = getActiveTierListId();
+  const [allRels, tierList] = await Promise.all([
+    db.relationships.where('tierListId').equals(tierListId).toArray(),
+    db.tierLists.get(tierListId),
+  ]);
+  return {
+    tierListId,
+    tierCount: (tierList?.tierDefs ?? DEFAULT_TIER_DEFS).length,
+    dryState: initDryRun(allRels, characters),
+  };
+}
+
+export async function addRelationshipsFromChain(
+  chain: string,
+  characters: Character[],
+  note?: string,
+): Promise<{ added: number; errors: string[] }> {
+  const { tierListId, tierCount, dryState } = await loadChainContext(characters);
+  const { adds, errors } = processChainAgainstState(chain, characters, dryState, tierCount);
+  await commitPendingAdds(tierListId, adds, note);
+  return { added: adds.length, errors };
+}
+
+/**
+ * Batch entry point for multi-line paste. Loads the graph and builds the
+ * dry-run state ONCE, validates every line against it incrementally (later
+ * lines see earlier lines' additions), and commits in one transaction —
+ * instead of a full fetch + fixpoint rebuild per line.
+ */
+export async function addRelationshipsFromLines(
+  lines: string[],
+  characters: Character[],
+  note?: string,
+): Promise<{ added: number; errors: string[] }> {
+  const t0 = performance.now();
+  const { tierListId, tierCount, dryState } = await loadChainContext(characters);
+  const errors: string[] = [];
+  const toAdd: PendingAdd[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) continue;
+    const result = processChainAgainstState(trimmed, characters, dryState, tierCount);
+    toAdd.push(...result.adds);
+    errors.push(...result.errors);
+  }
+  await commitPendingAdds(tierListId, toAdd, note);
+  const elapsed = performance.now() - t0;
+  if (elapsed > 150) {
+    log.warn('relationships', `addRelationshipsFromLines took ${Math.round(elapsed)}ms for ${lines.length} lines, ${toAdd.length} write(s)`);
+  }
+  return { added: toAdd.length, errors };
 }
 
 export async function deleteRelationship(id: string): Promise<void> {
   await db.relationships.delete(id);
 }
 
+/**
+ * Validate a full relationship set against the enforcement rules: no strict
+ * edge inside a >= same-tier class, no tier loop between classes, and no
+ * chain longer than the list. Returns an error message, or null if valid.
+ */
+function validateRelationshipSet(
+  rels: Relationship[],
+  tierCount: number,
+  charName: (id: string) => string,
+): string | null {
+  // Union-find over non-strict (>=) edges — each class shares one tier.
+  const parent = new Map<string, string>();
+  function find(x: string): string {
+    if (!parent.has(x)) parent.set(x, x);
+    let r = x;
+    while (parent.get(r)! !== r) r = parent.get(r)!;
+    while (parent.get(x)! !== r) {
+      const p = parent.get(x)!;
+      parent.set(x, r);
+      x = p;
+    }
+    return r;
+  }
+  for (const r of rels) {
+    if (r.strict ?? false) continue;
+    const a = find(r.superiorId);
+    const b = find(r.inferiorId);
+    if (a !== b) parent.set(a, b);
+  }
+
+  for (const r of rels) {
+    if (!(r.strict ?? false)) continue;
+    if (find(r.superiorId) === find(r.inferiorId)) {
+      return `${charName(r.superiorId)} > ${charName(r.inferiorId)} contradicts a >= chain that forces them into the same tier`;
+    }
+  }
+
+  const classGraph = new Map<string, Set<string>>();
+  for (const r of rels) {
+    if (!(r.strict ?? false)) continue;
+    const supC = find(r.superiorId);
+    const infC = find(r.inferiorId);
+    if (!classGraph.has(supC)) classGraph.set(supC, new Set());
+    classGraph.get(supC)!.add(infC);
+  }
+  if (detectCycles(classGraph).length > 0) {
+    return 'This change would form a tier loop with existing >= chains — see the Contradictions view';
+  }
+
+  const needed = maxChainLength(rels);
+  if (needed > tierCount) {
+    return `Chain would need ${needed} tiers but the list only has ${tierCount}`;
+  }
+  return null;
+}
+
+/**
+ * Toggle a relationship between strict (>) and non-strict (>=). Validated
+ * like an add — both directions can contradict the rest of the graph — and
+ * placements are re-enforced on success.
+ */
 export async function updateRelationshipStrict(
   id: string,
   strict: boolean,
-): Promise<void> {
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const rel = await db.relationships.get(id);
+  if (!rel) return { ok: false, reason: 'Relationship not found' };
+  if ((rel.strict ?? false) === strict) return { ok: true };
+
+  const [allRels, tierList, characters] = await Promise.all([
+    db.relationships.where('tierListId').equals(rel.tierListId).toArray(),
+    db.tierLists.get(rel.tierListId),
+    db.characters.where('tierListId').equals(rel.tierListId).toArray(),
+  ]);
+  const tierCount = (tierList?.tierDefs ?? DEFAULT_TIER_DEFS).length;
+  const charMap = new Map(characters.map((c) => [c.id, c]));
+  const modified = allRels.map((r) => (r.id === id ? { ...r, strict } : r));
+
+  const error = validateRelationshipSet(modified, tierCount, (cid) => charMap.get(cid)?.name ?? cid);
+  if (error) return { ok: false, reason: error };
+
   await db.relationships.update(id, { strict });
+  // Apply the changed rule to placements immediately, like add does.
+  await enforceAndAutoPlace();
+  return { ok: true };
 }

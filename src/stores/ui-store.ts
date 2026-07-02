@@ -12,6 +12,17 @@ export const CARD_SIZES: Record<CardSize, { card: number; img: number; text: str
   lg: { card: 100, img: 76, text: '11px', name: 'L' },
 };
 
+/**
+ * Estimated rendered card height: image + label line + inner gap + padding.
+ * Single source of truth — the unranked pool's virtual rows and the card's
+ * containIntrinsicSize must agree, or off-screen cards reserve the wrong
+ * space inside fixed-height virtual rows.
+ */
+export function cardHeightEstimate(size: CardSize): number {
+  const s = CARD_SIZES[size];
+  return s.img + Math.round(parseInt(s.text, 10) * 1.25) + 2 + 8;
+}
+
 interface UIState {
   page: AppPage;
   activeTierListId: string | null;
@@ -57,7 +68,7 @@ export const useUIStore = create<UIState>((set) => ({
   imageDisplay: 'contain',
   cardSize: 'md',
   presenting: false,
-  showTierCounts: false,
+  showTierCounts: true,
   searchQuery: '',
   selectedCharacterId: null,
   helpOpen: false,

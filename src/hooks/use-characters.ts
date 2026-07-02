@@ -3,6 +3,7 @@ import { db } from '../db/database';
 import type { Character } from '../types';
 import { getActiveTierListId } from './use-tier-list';
 import { useUIStore } from '../stores/ui-store';
+import { invalidateImage } from './use-image';
 
 export function useCharacters(): Character[] {
   // Subscribe to the store directly so we re-render when the user switches
@@ -100,6 +101,7 @@ export async function setCharacterImage(characterId: string, imageFile: File): P
 
   if (character.imageId) {
     await db.images.delete(character.imageId).catch(() => {});
+    invalidateImage(character.imageId);
   }
 
   await db.characters.update(characterId, { imageId, updatedAt: Date.now() });
@@ -153,7 +155,10 @@ export async function deleteCharacters(ids: string[]): Promise<number> {
     'rw',
     [db.characters, db.images, db.relationships, db.tierLists],
     async () => {
-      if (imageIdsToDelete.length > 0) await db.images.bulkDelete(imageIdsToDelete);
+      if (imageIdsToDelete.length > 0) {
+        await db.images.bulkDelete(imageIdsToDelete);
+        for (const id of imageIdsToDelete) invalidateImage(id);
+      }
       await db.characters.bulkDelete(real.map((c) => c.id));
 
       // Relationships: delete any edge touching a deleted character.

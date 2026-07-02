@@ -4,6 +4,7 @@ import { useUIStore, CARD_SIZES } from '../../stores/ui-store';
 import { useCharacters } from '../../hooks/use-characters';
 import { useTierList } from '../../hooks/use-tier-list';
 import { useImage } from '../../hooks/use-image';
+import { readableTextOn } from '../../lib/color';
 import type { Character, TierDefinition } from '../../types';
 import { DEFAULT_TIER_DEFS } from '../../types';
 import { log } from '../../lib/logger';
@@ -59,7 +60,7 @@ function PresentationTierRow({
     <div className="flex items-stretch border-b border-gray-800 last:border-0">
       <div
         className="w-14 shrink-0 flex items-center justify-center font-bold text-lg"
-        style={{ backgroundColor: tierDef.color, color: '#141414' }}
+        style={{ backgroundColor: tierDef.color, color: readableTextOn(tierDef.color) }}
       >
         {tierDef.name}
       </div>

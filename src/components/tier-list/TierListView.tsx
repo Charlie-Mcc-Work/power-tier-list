@@ -27,6 +27,8 @@ import { DEFAULT_TIER_DEFS } from '../../types';
 import { log } from '../../lib/logger';
 import { undoManager } from '../../lib/undo';
 
+const EMPTY_BUCKET: { characters: Character[]; ids: string[] } = { characters: [], ids: [] };
+
 export function TierListView() {
   const characters = useCharacters();
   const tierList = useTierList();
@@ -103,10 +105,19 @@ export function TierListView() {
     };
   }, [activeId]);
 
+  // Undo history belongs to one list — switching lists must discard it, or
+  // Ctrl+Z would write the previous list's placements into this one.
+  useEffect(() => {
+    undoManager.setContext(tierList?.id ?? null);
+  }, [tierList?.id]);
+
   // Undo/redo keyboard shortcuts
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (!(e.ctrlKey || e.metaKey)) return;
+      // Leave native text-editing undo alone while typing.
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
         const restored = undoManager.undo(dbAssignments);
@@ -137,27 +148,28 @@ export function TierListView() {
     [characters],
   );
 
-  const getCharactersForTier = useCallback(
-    (tierId: string): Character[] => {
-      return assignments
-        .filter((a) => a.tier === tierId)
-        .sort((a, b) => a.position - b.position)
-        .map((a) => charMap.get(a.characterId))
-        .filter((c): c is Character => c !== undefined);
-    },
-    [assignments, charMap],
-  );
+  // One bucketing pass instead of two filter+sorts per tier per render.
+  // Drag-time renders are hot (hover highlight updates per pointer move), and
+  // the stable per-tier array identities let memoized TierRows bail out.
+  const tierBuckets = useMemo(() => {
+    const buckets = new Map<string, { characters: Character[]; ids: string[] }>();
+    const sorted = [...assignments].sort((a, b) => a.position - b.position);
+    for (const a of sorted) {
+      const char = charMap.get(a.characterId);
+      if (!char) continue;
+      let bucket = buckets.get(a.tier);
+      if (!bucket) {
+        bucket = { characters: [], ids: [] };
+        buckets.set(a.tier, bucket);
+      }
+      bucket.characters.push(char);
+      bucket.ids.push(a.characterId);
+    }
+    return buckets;
+  }, [assignments, charMap]);
 
-  const getCharacterIdsForTier = useCallback(
-    (tierId: string): string[] => {
-      return assignments
-        .filter((a) => a.tier === tierId)
-        .sort((a, b) => a.position - b.position)
-        .map((a) => a.characterId)
-        .filter((id) => charMap.has(id));
-    },
-    [assignments, charMap],
-  );
+  const handleAutoEditHandled = useCallback(() => setAutoEditTierId(null), []);
+  const handleInsertedTier = useCallback((newId: string) => setAutoEditTierId(newId), []);
 
   const unrankedCharacters = useMemo(
     () => characters.filter((c) => !assignmentMap.has(c.id)),
@@ -334,6 +346,16 @@ export function TierListView() {
       )}
       <InconsistencyBanner inconsistencies={inconsistencies} />
 
+      {characters.length > 0 && (
+        <div className="mb-2 flex items-center gap-2 text-xs text-gray-400">
+          <span><span className="font-medium text-gray-200">{characters.length - unrankedCharacters.length}</span> ranked</span>
+          <span className="text-gray-600">·</span>
+          <span><span className="font-medium text-gray-200">{unrankedCharacters.length}</span> unranked</span>
+          <span className="text-gray-600">·</span>
+          <span><span className="font-medium text-gray-200">{characters.length}</span> total</span>
+        </div>
+      )}
+
       <DndContext
         sensors={sensors}
         collisionDetection={pointerWithin}
@@ -342,22 +364,25 @@ export function TierListView() {
         onDragEnd={handleDragEnd}
       >
         <div data-tier-container className="rounded-lg overflow-hidden border border-gray-700 bg-[#141414]">
-          {tierDefs.map((td, idx) => (
-            <div key={td.id} data-tier-id={td.id}>
-              <TierRow
-                tierDef={td}
-                characters={getCharactersForTier(td.id)}
-                characterIds={getCharacterIdsForTier(td.id)}
-                highlighted={hoveredTierId === td.id && activeId != null}
-                index={idx}
-                totalTiers={tierDefs.length}
-                tierIds={tierIds}
-                autoEdit={autoEditTierId === td.id}
-                onAutoEditHandled={() => setAutoEditTierId(null)}
-                onInsertedTier={(newId) => setAutoEditTierId(newId)}
-              />
-            </div>
-          ))}
+          {tierDefs.map((td, idx) => {
+            const bucket = tierBuckets.get(td.id) ?? EMPTY_BUCKET;
+            return (
+              <div key={td.id} data-tier-id={td.id}>
+                <TierRow
+                  tierDef={td}
+                  characters={bucket.characters}
+                  characterIds={bucket.ids}
+                  highlighted={hoveredTierId === td.id && activeId != null}
+                  index={idx}
+                  totalTiers={tierDefs.length}
+                  tierIds={tierIds}
+                  autoEdit={autoEditTierId === td.id}
+                  onAutoEditHandled={handleAutoEditHandled}
+                  onInsertedTier={handleInsertedTier}
+                />
+              </div>
+            );
+          })}
         </div>
 
         <UnrankedPool

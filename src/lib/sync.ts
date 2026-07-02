@@ -76,9 +76,66 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   return res.json();
 }
 
+// ── Server stamps ──────────────────────────────────────────────────────────
+// The server assigns `updated_at` from its own clock on every PUT. The local
+// `tierList.updatedAt` is a *client* clock over *content* — the two are not
+// comparable. We remember the last server stamp we've seen per list (from a
+// push response or a pull) and only pull when the remote stamp moves past it.
+
+function stampKey(listId: string) {
+  return `syncStamp:${listId}`;
+}
+
+async function getServerStamp(listId: string): Promise<number> {
+  const row = await localDb.meta.get(stampKey(listId));
+  return typeof row?.value === 'number' ? row.value : 0;
+}
+
+// ── Pending deletions ──────────────────────────────────────────────────────
+// Deleting a list locally must reach the server, or the next pull re-imports
+// it. Persisted in localStorage so a tab close before the flush doesn't lose
+// the deletion. (Remote→local deletion propagation is deliberately not done:
+// an empty or rebuilt server DB would look identical to "everything was
+// deleted elsewhere" and mass-delete local data.)
+
+const STORAGE_KEY_DELETED = 'ptl_sync_deleted';
+
+function getPendingDeletes(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_DELETED);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function setPendingDeletes(ids: Set<string>) {
+  if (ids.size === 0) {
+    localStorage.removeItem(STORAGE_KEY_DELETED);
+  } else {
+    localStorage.setItem(STORAGE_KEY_DELETED, JSON.stringify([...ids]));
+  }
+}
+
 /** Push local tier lists to the server. When `listIds` is given, only those
  *  are uploaded — enables auto-sync to upload only the list that changed. */
 export async function syncPush(listIds?: string[]): Promise<{ pushed: number }> {
+  // Propagate local deletions first so a pull can't resurrect them.
+  const pendingDeletes = getPendingDeletes();
+  for (const id of pendingDeletes) {
+    if (await localDb.tierLists.get(id)) {
+      // List was re-created since (import/restore) — it'll be pushed normally.
+      pendingDeletes.delete(id);
+      setPendingDeletes(pendingDeletes);
+      continue;
+    }
+    await apiFetch(`/api/lists/${id}`, { method: 'DELETE' });
+    pendingDeletes.delete(id);
+    setPendingDeletes(pendingDeletes);
+    await localDb.meta.delete(stampKey(id));
+    log.info('sync', `propagated deletion: ${id}`);
+  }
+
   const allLists = await localDb.tierLists.toArray();
   const tierLists = listIds ? allLists.filter((tl) => listIds.includes(tl.id)) : allLists;
   let pushed = 0;
@@ -110,10 +167,13 @@ export async function syncPush(listIds?: string[]): Promise<{ pushed: number }> 
       images: serializedImages.filter(Boolean),
     };
 
-    await apiFetch(`/api/lists/${tl.id}`, {
+    const res: { updated_at?: number } = await apiFetch(`/api/lists/${tl.id}`, {
       method: 'PUT',
       body: JSON.stringify({ name: tl.name, data: JSON.stringify(data) }),
     });
+    if (typeof res.updated_at === 'number') {
+      await localDb.meta.put({ key: stampKey(tl.id), value: res.updated_at });
+    }
     pushed++;
     log.info('sync', `pushed: ${tl.name}`);
   }
@@ -126,14 +186,33 @@ export async function syncPull(): Promise<{ pulled: number }> {
   const remoteLists: Array<{ id: string; name: string; updated_at: number }> = await apiFetch('/api/lists');
   let pulled = 0;
 
+  const pendingDeletes = getPendingDeletes();
   for (const remote of remoteLists) {
-    const local = await localDb.tierLists.get(remote.id);
-    // Pull if remote is newer or doesn't exist locally
-    if (!local || remote.updated_at > local.updatedAt) {
-      const full = await apiFetch(`/api/lists/${remote.id}`);
-      const data = JSON.parse(full.data);
+    // Deleted locally, deletion not yet propagated — don't resurrect it.
+    if (pendingDeletes.has(remote.id)) continue;
 
-      await localDb.transaction('rw', [localDb.tierLists, localDb.characters, localDb.relationships, localDb.images], async () => {
+    const local = await localDb.tierLists.get(remote.id);
+    // Pull only if the server's stamp moved past the last one we saw (i.e.
+    // some device pushed since our last contact) or the list is new to us.
+    if (local && remote.updated_at <= (await getServerStamp(remote.id))) continue;
+
+    // Local unpushed edits win over a concurrent remote change (LWW, push
+    // side) — skipping here keeps the pull from destroying them; the pending
+    // push will overwrite the remote version shortly.
+    if (local && dirtyIds.has(remote.id)) {
+      log.warn('sync', `skipped pull of "${remote.name}" — local edits pending push`);
+      continue;
+    }
+
+    const full = await apiFetch(`/api/lists/${remote.id}`);
+    const data = JSON.parse(full.data);
+
+    // Mute only for the duration of the local write transaction — a global
+    // mute across the network awaits would swallow genuine user edits made
+    // while the pull is in flight.
+    muted = true;
+    try {
+      await localDb.transaction('rw', [localDb.tierLists, localDb.characters, localDb.relationships, localDb.images, localDb.meta], async () => {
         // Clear existing data for this list
         await localDb.characters.where('tierListId').equals(remote.id).delete();
         await localDb.relationships.where('tierListId').equals(remote.id).delete();
@@ -174,11 +253,15 @@ export async function syncPull(): Promise<{ pulled: number }> {
             });
           }
         }
-      });
 
-      pulled++;
-      log.info('sync', `pulled: ${remote.name}`);
+        await localDb.meta.put({ key: stampKey(remote.id), value: remote.updated_at });
+      });
+    } finally {
+      muted = false;
     }
+
+    pulled++;
+    log.info('sync', `pulled: ${remote.name}`);
   }
 
   return { pulled };
@@ -223,6 +306,7 @@ export async function checkConnection(): Promise<boolean> {
 // Last-writer-wins on conflicts — acceptable for single-user multi-device.
 
 const PUSH_DEBOUNCE_MS = 2000;
+const PUSH_RETRY_MS = 15000;
 const REFOCUS_PULL_THRESHOLD_MS = 5000;
 
 let initialized = false;
@@ -250,10 +334,24 @@ function markDirty(listId?: string) {
   pushTimer = window.setTimeout(flushPush, PUSH_DEBOUNCE_MS);
 }
 
+/** A tier list was deleted locally — queue the deletion for the server. */
+function markDeleted(listId?: string) {
+  if (muted) return;
+  if (!getSyncConfig()) return;
+  if (!listId) return;
+  const pending = getPendingDeletes();
+  pending.add(listId);
+  setPendingDeletes(pending);
+  dirtyIds.delete(listId);
+  setStatus('syncing');
+  if (pushTimer) window.clearTimeout(pushTimer);
+  pushTimer = window.setTimeout(flushPush, PUSH_DEBOUNCE_MS);
+}
+
 async function flushPush() {
   pushTimer = null;
   if (!getSyncConfig()) return;
-  if (dirtyIds.size === 0) {
+  if (dirtyIds.size === 0 && getPendingDeletes().size === 0) {
     setStatus('synced');
     return;
   }
@@ -261,29 +359,34 @@ async function flushPush() {
   dirtyIds = new Set();
   setStatus('syncing');
   try {
-    await syncPush(ids);
+    await syncPush(ids); // an empty ids array still flushes pending deletions
     setStatus(dirtyIds.size === 0 ? 'synced' : 'syncing');
     log.info('sync', `auto-pushed ${ids.length} list(s)`);
   } catch (err) {
-    // Restore dirtiness so the next edit (or manual retry) catches up.
+    // Restore dirtiness and retry on a timer — without it, unpushed edits sit
+    // local-only until the next edit, and a pull could overwrite them.
     ids.forEach((id) => dirtyIds.add(id));
     setStatus('offline');
-    log.warn('sync', `auto-push failed: ${err instanceof Error ? err.message : String(err)}`);
+    log.warn('sync', `auto-push failed, retrying in ${PUSH_RETRY_MS / 1000}s: ${err instanceof Error ? err.message : String(err)}`);
+    if (pushTimer) window.clearTimeout(pushTimer);
+    pushTimer = window.setTimeout(flushPush, PUSH_RETRY_MS);
   }
 }
 
 async function pullSilently() {
   if (!getSyncConfig()) return;
   setStatus('syncing');
-  muted = true;
   try {
+    // Flush unpushed edits and deletions first: syncPull skips dirty lists to
+    // protect them, so pushing first lets the pull see a converged server.
+    if (dirtyIds.size > 0 || getPendingDeletes().size > 0) {
+      await flushPush();
+    }
     await syncPull();
     setStatus(dirtyIds.size === 0 ? 'synced' : 'syncing');
   } catch (err) {
     setStatus('offline');
     log.warn('sync', `auto-pull failed: ${err instanceof Error ? err.message : String(err)}`);
-  } finally {
-    muted = false;
   }
 }
 
@@ -296,7 +399,9 @@ export function initAutoSync() {
   // table. Types differ per table so we can't loop — do it inline.
   localDb.tierLists.hook('creating', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
   localDb.tierLists.hook('updating', (_mods, _pk, obj) => { markDirty(getListIdFrom(obj)); });
-  localDb.tierLists.hook('deleting', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
+  // A deleted list can't be pushed (it no longer exists locally) — it needs
+  // an explicit server-side DELETE, or the next pull resurrects it.
+  localDb.tierLists.hook('deleting', (_pk, obj) => { markDeleted(getListIdFrom(obj)); });
 
   localDb.characters.hook('creating', (_pk, obj) => { markDirty(getListIdFrom(obj)); });
   localDb.characters.hook('updating', (_mods, _pk, obj) => { markDirty(getListIdFrom(obj)); });
@@ -336,6 +441,7 @@ export function refreshAutoSync() {
   if (!getSyncConfig()) {
     setStatus('disabled');
     dirtyIds.clear();
+    setPendingDeletes(new Set());
     if (pushTimer) { window.clearTimeout(pushTimer); pushTimer = null; }
     return;
   }

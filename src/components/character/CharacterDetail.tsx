@@ -37,6 +37,7 @@ export function CharacterDetail({ characterId, onClose }: Props) {
   }
 
   async function handleDelete() {
+    if (!window.confirm(`Delete "${character!.name}"? Its relationships are removed too. Restorable via Backups.`)) return;
     await deleteCharacter(characterId);
     onClose();
   }

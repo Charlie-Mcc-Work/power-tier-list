@@ -62,7 +62,7 @@ export interface ImageBlob {
 }
 
 export type AppView = 'tierlist' | 'relationships';
-export type LayoutMode = 'triple' | 'split' | 'tabs';
+export type LayoutMode = 'triple' | 'tabs';
 
 export interface Inconsistency {
   type: 'placement' | 'cycle';
