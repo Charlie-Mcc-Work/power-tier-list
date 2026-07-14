@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
-import type { TierList, TierAssignment } from '../types';
+import type { TierList, TierListMode, TierAssignment, Character } from '../types';
 import { DEFAULT_TIER_DEFS } from '../types';
 import { autoPlaceAndEnforce, compactUpward } from '../lib/enforce-constraints';
 import { undoManager } from '../lib/undo';
@@ -35,18 +35,66 @@ export function useAllTierLists(): TierList[] {
 
 // ── CRUD ──
 
-export async function createTierList(name: string): Promise<string> {
+export async function createTierList(name: string, mode: TierListMode = 'graph'): Promise<string> {
   const id = crypto.randomUUID();
   const now = Date.now();
   await db.tierLists.add({
     id,
     name,
+    mode,
     tierDefs: DEFAULT_TIER_DEFS,
     tiers: [],
     createdAt: now,
     updatedAt: now,
   });
   return id;
+}
+
+/**
+ * Duplicate a tier list into a new SIMPLE list: same tier defs, characters,
+ * and placements, but no relationships and no enforcement. Characters get
+ * fresh ids (so the copy is independently editable/deletable) while sharing
+ * the source's image blobs — deleteCharacters/deleteTierList already check
+ * cross-list references before removing an image, so sharing is safe and
+ * avoids duplicating megabytes of blobs.
+ */
+export async function duplicateAsSimpleList(sourceId: string): Promise<string> {
+  const source = await db.tierLists.get(sourceId);
+  if (!source) throw new Error('Tier list not found');
+  const sourceChars = await db.characters.where('tierListId').equals(sourceId).toArray();
+
+  const newListId = crypto.randomUUID();
+  const now = Date.now();
+  const charIdMap = new Map<string, string>();
+  for (const c of sourceChars) charIdMap.set(c.id, crypto.randomUUID());
+
+  const newChars: Character[] = sourceChars.map((c) => ({
+    ...c,
+    id: charIdMap.get(c.id)!,
+    tierListId: newListId,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  const newList: TierList = {
+    id: newListId,
+    name: `${source.name} (simple)`,
+    mode: 'simple',
+    tierDefs: (source.tierDefs ?? DEFAULT_TIER_DEFS).map((t) => ({ ...t })),
+    // Drop assignments whose character no longer exists rather than copying
+    // dangling ids into the new list.
+    tiers: source.tiers
+      .filter((t) => charIdMap.has(t.characterId))
+      .map((t) => ({ ...t, characterId: charIdMap.get(t.characterId)! })),
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await db.transaction('rw', [db.tierLists, db.characters], async () => {
+    await db.tierLists.add(newList);
+    if (newChars.length > 0) await db.characters.bulkAdd(newChars);
+  });
+
+  return newListId;
 }
 
 export async function ensureTierList(): Promise<TierList> {

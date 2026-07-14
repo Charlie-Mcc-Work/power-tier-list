@@ -22,6 +22,39 @@ export function HelpPanel() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6 text-sm text-gray-300">
+          {/* List modes */}
+          <section>
+            <h3 className="text-white font-medium mb-2">List Modes</h3>
+            <p className="text-xs text-gray-400">
+              Every tier list is one of two kinds, chosen with the
+              <span className="text-gray-300"> Graph / Simple</span> toggle when you create it:
+            </p>
+            <ul className="text-xs space-y-1.5 mt-2 text-gray-400">
+              <li>
+                <span className="text-gray-300">Graph</span> — the full experience described in
+                the rest of this help: relationships, operators, constraint enforcement,
+                Compact, the graph view, and the relationships panel.
+              </li>
+              <li>
+                <span className="text-gray-300">Simple</span> — a regular tier list. You just
+                drag characters where you want them; there are no relationships, no rules,
+                and nothing ever moves a card except you. The relationships panel, Compact
+                button, and enforcement engine are all absent, so it's also lighter to work
+                with. Marked with a <span className="text-gray-300">simple</span> badge on the
+                home page and in the top bar. Everything else (custom tiers, images, search,
+                Present, Copy Text, Export/Import, Backups, Sync, undo) works the same.
+              </li>
+            </ul>
+            <p className="text-xs text-gray-400 mt-2">
+              <span className="text-gray-300">Copy a graph list to simple:</span> hover a graph
+              list's card on the home page and click <span className="text-gray-300">→ simple</span>.
+              This creates a new, independent simple list with the same tiers, colors,
+              characters, and placements — the relationships are left behind. The original
+              graph list is untouched, and images are shared rather than duplicated, so the
+              copy costs almost no extra storage.
+            </p>
+          </section>
+
           {/* Operators */}
           <section>
             <h3 className="text-white font-medium mb-2">Operators</h3>

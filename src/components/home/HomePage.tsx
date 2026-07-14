@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import { useUIStore } from '../../stores/ui-store';
-import { useAllTierLists, createTierList, deleteTierList, updateTierListName } from '../../hooks/use-tier-list';
-import type { TierList, TierDefinition } from '../../types';
+import {
+  useAllTierLists,
+  createTierList,
+  deleteTierList,
+  updateTierListName,
+  duplicateAsSimpleList,
+} from '../../hooks/use-tier-list';
+import type { TierList, TierListMode, TierDefinition } from '../../types';
 import { DEFAULT_TIER_DEFS } from '../../types';
 
 export function HomePage() {
@@ -11,12 +17,19 @@ export function HomePage() {
   const setSnapshotsOpen = useUIStore((s) => s.setSnapshotsOpen);
   const setSyncOpen = useUIStore((s) => s.setSyncOpen);
   const [newName, setNewName] = useState('');
+  const [newMode, setNewMode] = useState<TierListMode>('graph');
 
   async function handleCreate() {
     const name = newName.trim() || 'Untitled Tier List';
-    const id = await createTierList(name);
+    const id = await createTierList(name, newMode);
     setNewName('');
     openTierList(id);
+  }
+
+  async function handleCopyAsSimple(e: React.MouseEvent, id: string) {
+    e.stopPropagation();
+    const newId = await duplicateAsSimpleList(id);
+    openTierList(newId);
   }
 
   function handleOpen(id: string) {
@@ -68,7 +81,7 @@ export function HomePage() {
         </div>
 
         {/* Create new */}
-        <div className="flex gap-3 mb-8">
+        <div className="flex gap-3 mb-2">
           <input
             type="text"
             value={newName}
@@ -78,6 +91,27 @@ export function HomePage() {
             className="flex-1 bg-[#1e1e1e] border border-gray-700 rounded-lg px-4 py-3 text-sm text-white
                        placeholder-gray-600 focus:border-amber-500 focus:outline-none"
           />
+          <div className="flex items-center border border-gray-700 rounded-lg overflow-hidden shrink-0">
+            {(
+              [
+                { mode: 'graph', label: 'Graph', title: 'Relationships + constraint enforcement' },
+                { mode: 'simple', label: 'Simple', title: 'Plain tier list — just drag things in' },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.mode}
+                onClick={() => setNewMode(opt.mode)}
+                title={opt.title}
+                className={`px-4 py-3 text-sm transition-colors ${
+                  newMode === opt.mode
+                    ? 'bg-gray-600 text-white'
+                    : 'bg-[#1e1e1e] text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
           <button
             onClick={handleCreate}
             className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium
@@ -86,6 +120,11 @@ export function HomePage() {
             Create
           </button>
         </div>
+        <p className="text-[11px] text-gray-600 mb-8">
+          {newMode === 'graph'
+            ? 'Graph: rankings driven by relationships (A > B) with automatic enforcement.'
+            : 'Simple: a regular tier list — drag characters wherever you want, no rules.'}
+        </p>
 
         {/* Tier list grid */}
         {tierLists.length === 0 ? (
@@ -102,6 +141,7 @@ export function HomePage() {
                 onOpen={() => handleOpen(tl.id)}
                 onDelete={(e) => handleDelete(e, tl.id)}
                 onRename={(name) => updateTierListName(tl.id, name)}
+                onCopyAsSimple={(e) => handleCopyAsSimple(e, tl.id)}
               />
             ))}
           </div>
@@ -116,11 +156,13 @@ function TierListCard({
   onOpen,
   onDelete,
   onRename,
+  onCopyAsSimple,
 }: {
   tierList: TierList;
   onOpen: () => void;
   onDelete: (e: React.MouseEvent) => void;
   onRename: (name: string) => void;
+  onCopyAsSimple: (e: React.MouseEvent) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tierList.name);
@@ -189,7 +231,17 @@ function TierListCard({
                      focus:border-amber-400 focus:outline-none"
         />
       ) : (
-        <h3 className="text-sm font-medium text-white truncate">{tierList.name}</h3>
+        <h3 className="text-sm font-medium text-white truncate flex items-center gap-1.5">
+          <span className="truncate">{tierList.name}</span>
+          {tierList.mode === 'simple' && (
+            <span
+              className="shrink-0 px-1 py-px text-[9px] uppercase tracking-wider text-gray-500 border border-gray-700 rounded"
+              title="Simple list — free placement, no relationships"
+            >
+              simple
+            </span>
+          )}
+        </h3>
       )}
 
       {/* Meta */}
@@ -198,6 +250,15 @@ function TierListCard({
           {totalPlaced} placed &middot; {lastEdited}
         </span>
         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {tierList.mode !== 'simple' && (
+            <button
+              onClick={onCopyAsSimple}
+              className="text-[10px] text-gray-500 hover:text-gray-300 px-1"
+              title="Copy into a new simple list: same tiers and placements, relationships left behind"
+            >
+              → simple
+            </button>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();

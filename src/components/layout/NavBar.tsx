@@ -9,7 +9,7 @@ import {
   detectImportFileKind,
   downloadExport,
 } from '../../db/export-import';
-import { compactTierList } from '../../hooks/use-tier-list';
+import { compactTierList, useTierList } from '../../hooks/use-tier-list';
 import type { AppView, LayoutMode } from '../../types';
 
 const tabs: { view: AppView; label: string }[] = [
@@ -58,6 +58,10 @@ export function NavBar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('disabled');
   const [compactConfirmOpen, setCompactConfirmOpen] = useState(false);
+  // Simple lists hide everything relationship-flavored: the layout switcher
+  // and Relationships tab (there's only one pane) and Compact (no
+  // relationships to compact against).
+  const isSimple = useTierList()?.mode === 'simple';
 
   // Close the mobile menu when the viewport grows past sm.
   useEffect(() => {
@@ -218,26 +222,38 @@ export function NavBar() {
         Power Tier List
       </h1>
 
+      {isSimple && (
+        <span
+          className="hidden sm:inline-flex px-1.5 py-0.5 mr-3 text-[10px] uppercase tracking-wider
+                     text-gray-400 border border-gray-600 rounded"
+          title="Simple list — free placement, no relationships"
+        >
+          simple
+        </span>
+      )}
+
       {/* Layout switcher — hidden on mobile (auto-switches to tabs below 768px) */}
-      <div className="hidden md:flex items-center border border-gray-600 rounded overflow-hidden mr-3">
-        {layouts.map((l) => (
-          <button
-            key={l.mode}
-            onClick={() => setLayoutMode(l.mode)}
-            title={l.title}
-            className={`px-2.5 py-1.5 text-xs font-mono transition-colors ${
-              layoutMode === l.mode
-                ? 'bg-amber-600 text-white'
-                : 'bg-gray-800 text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            {l.label}
-          </button>
-        ))}
-      </div>
+      {!isSimple && (
+        <div className="hidden md:flex items-center border border-gray-600 rounded overflow-hidden mr-3">
+          {layouts.map((l) => (
+            <button
+              key={l.mode}
+              onClick={() => setLayoutMode(l.mode)}
+              title={l.title}
+              className={`px-2.5 py-1.5 text-xs font-mono transition-colors ${
+                layoutMode === l.mode
+                  ? 'bg-amber-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Tab nav — only shown in tabs mode */}
-      {layoutMode === 'tabs' &&
+      {layoutMode === 'tabs' && !isSimple &&
         tabs.map((tab) => (
           <button
             key={tab.view}
@@ -345,15 +361,17 @@ export function NavBar() {
           Present
         </button>
 
-        <button
-          onClick={() => setCompactConfirmOpen(true)}
-          disabled={busy}
-          className="hidden sm:inline-flex px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
-                     rounded transition-colors disabled:opacity-50"
-          title="Move every placed character up as far as their relationships allow"
-        >
-          Compact
-        </button>
+        {!isSimple && (
+          <button
+            onClick={() => setCompactConfirmOpen(true)}
+            disabled={busy}
+            className="hidden sm:inline-flex px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600
+                       rounded transition-colors disabled:opacity-50"
+            title="Move every placed character up as far as their relationships allow"
+          >
+            Compact
+          </button>
+        )}
 
         <button
           onClick={() => setSnapshotsOpen(true)}
@@ -426,7 +444,9 @@ export function NavBar() {
             <div className="grid grid-cols-2 gap-2">
               <MenuAction label="Present" onClick={() => { setPresenting(true); setMobileMenuOpen(false); }} accent />
               <MenuAction label={syncStatusLabel(syncStatus)} onClick={() => { setSyncOpen(true); setMobileMenuOpen(false); }} />
-              <MenuAction label="Compact" disabled={busy} onClick={() => { setCompactConfirmOpen(true); setMobileMenuOpen(false); }} />
+              {!isSimple && (
+                <MenuAction label="Compact" disabled={busy} onClick={() => { setCompactConfirmOpen(true); setMobileMenuOpen(false); }} />
+              )}
               <MenuAction label="Backups" onClick={() => { setSnapshotsOpen(true); setMobileMenuOpen(false); }} />
               <MenuAction label="Copy Text" onClick={() => { setCopyTextOpen(true); setMobileMenuOpen(false); }} />
               <MenuAction label="Help" onClick={() => { setHelpOpen(true); setMobileMenuOpen(false); }} />

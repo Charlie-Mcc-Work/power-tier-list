@@ -4,7 +4,7 @@ import { useUIStore } from '../../stores/ui-store';
 import { TierListView } from '../tier-list/TierListView';
 import { RelationshipsView } from '../relationships/RelationshipsView';
 import { CharacterDetail } from '../character/CharacterDetail';
-import { ensureTierList } from '../../hooks/use-tier-list';
+import { ensureTierList, useTierList } from '../../hooks/use-tier-list';
 
 function DragHandle({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
   const setSplitPercent = useUIStore((s) => s.setSplitPercent);
@@ -90,6 +90,9 @@ export function AppShell() {
   const selectedCharacterId = useUIStore((s) => s.selectedCharacterId);
   const selectCharacter = useUIStore((s) => s.selectCharacter);
   const activeTierListId = useUIStore((s) => s.activeTierListId);
+  // Simple lists have no relationships, so there's nothing to split with —
+  // the tier list gets the whole width regardless of layout mode.
+  const isSimple = useTierList()?.mode === 'simple';
 
   useEffect(() => {
     if (activeTierListId) {
@@ -113,8 +116,16 @@ export function AppShell() {
     <div className="flex flex-col h-screen">
       <NavBar />
       <div className="flex flex-1 overflow-hidden">
-        {layoutMode === 'triple' && <TwoPaneLayout />}
-        {layoutMode === 'tabs' && <TabsLayout />}
+        {isSimple ? (
+          <main className="flex-1 overflow-y-auto p-4">
+            <TierListView />
+          </main>
+        ) : (
+          <>
+            {layoutMode === 'triple' && <TwoPaneLayout />}
+            {layoutMode === 'tabs' && <TabsLayout />}
+          </>
+        )}
         {selectedCharacterId && (
           <CharacterDetail
             characterId={selectedCharacterId}

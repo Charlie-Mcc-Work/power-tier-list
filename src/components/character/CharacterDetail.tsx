@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useCharacter, updateCharacterName, deleteCharacter } from '../../hooks/use-characters';
 import { useRelationships } from '../../hooks/use-relationships';
 import { useCharacters } from '../../hooks/use-characters';
+import { useTierList } from '../../hooks/use-tier-list';
 import { useImage } from '../../hooks/use-image';
 
 interface Props {
@@ -13,6 +14,7 @@ export function CharacterDetail({ characterId, onClose }: Props) {
   const character = useCharacter(characterId);
   const characters = useCharacters();
   const relationships = useRelationships();
+  const isSimple = useTierList()?.mode === 'simple';
   const imageUrl = useImage(character?.imageId);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editName, setEditName] = useState('');
@@ -37,7 +39,8 @@ export function CharacterDetail({ characterId, onClose }: Props) {
   }
 
   async function handleDelete() {
-    if (!window.confirm(`Delete "${character!.name}"? Its relationships are removed too. Restorable via Backups.`)) return;
+    const relBlurb = isSimple ? '' : ' Its relationships are removed too.';
+    if (!window.confirm(`Delete "${character!.name}"?${relBlurb} Restorable via Backups.`)) return;
     await deleteCharacter(characterId);
     onClose();
   }
@@ -112,7 +115,8 @@ export function CharacterDetail({ characterId, onClose }: Props) {
           )}
         </div>
 
-        {/* Relationships */}
+        {/* Relationships — not a concept in simple lists */}
+        {!isSimple && (
         <div>
           <h4 className="text-xs font-medium text-gray-400 mb-2 uppercase tracking-wider">
             Relationships ({charRelationships.length})
@@ -145,6 +149,7 @@ export function CharacterDetail({ characterId, onClose }: Props) {
             </div>
           )}
         </div>
+        )}
 
         {/* Delete */}
         <button

@@ -32,10 +32,18 @@ export interface TierAssignment {
   position: number;
 }
 
+/**
+ * 'graph' (default, also what undefined means on pre-existing rows) — full
+ * relationship graph with constraint enforcement. 'simple' — a plain tier
+ * list: free drag-and-drop, no relationships, no enforcement engine.
+ */
+export type TierListMode = 'graph' | 'simple';
+
 export interface TierList {
   id: string;
   name: string;
   description?: string;
+  mode?: TierListMode;
   tierDefs: TierDefinition[];
   tiers: TierAssignment[];
   createdAt: number;

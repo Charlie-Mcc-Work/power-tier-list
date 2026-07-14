@@ -29,6 +29,30 @@ import { undoManager } from '../../lib/undo';
 
 const EMPTY_BUCKET: { characters: Character[]; ids: string[] } = { characters: [], ids: [] };
 
+/**
+ * Rebuild contiguous 0..n positions per tier, preserving relative order.
+ * Simple-mode drops commit the drag preview directly (no enforcement pass to
+ * clean up after them), and the preview leaves position gaps behind when a
+ * card exits a tier mid-drag.
+ */
+function normalizePositions(assignments: TierAssignment[]): TierAssignment[] {
+  const byTier = new Map<string, TierAssignment[]>();
+  for (const a of assignments) {
+    let bucket = byTier.get(a.tier);
+    if (!bucket) {
+      bucket = [];
+      byTier.set(a.tier, bucket);
+    }
+    bucket.push(a);
+  }
+  const result: TierAssignment[] = [];
+  for (const bucket of byTier.values()) {
+    bucket.sort((a, b) => a.position - b.position);
+    bucket.forEach((a, idx) => result.push({ ...a, position: idx }));
+  }
+  return result;
+}
+
 export function TierListView() {
   const characters = useCharacters();
   const tierList = useTierList();
@@ -44,6 +68,9 @@ export function TierListView() {
 
   const tierDefs = tierList?.tierDefs ?? DEFAULT_TIER_DEFS;
   const tierIds = useMemo(() => tierDefs.map((t) => t.id), [tierDefs]);
+  // Simple lists have no relationships: skip the enforcement engine and
+  // inconsistency scans entirely — a drop lands exactly where it was dropped.
+  const isSimple = tierList?.mode === 'simple';
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -182,8 +209,8 @@ export function TierListView() {
   );
 
   const inconsistencies = useMemo(
-    () => findInconsistencies(dbAssignments, relationships, characters, tierIds),
-    [dbAssignments, relationships, characters, tierIds],
+    () => (isSimple ? [] : findInconsistencies(dbAssignments, relationships, characters, tierIds)),
+    [isSimple, dbAssignments, relationships, characters, tierIds],
   );
 
   const activeCharacter = activeId ? charMap.get(activeId) : undefined;
@@ -288,7 +315,9 @@ export function TierListView() {
           reordered.forEach((id, idx) => {
             finalAssignments.push({ characterId: id, tier, position: idx });
           });
-          finalAssignments = enforceWithinTierOrder(finalAssignments, relationships);
+          if (!isSimple) {
+            finalAssignments = enforceWithinTierOrder(finalAssignments, relationships);
+          }
         } else {
           finalAssignments = dragPreview;
         }
@@ -297,6 +326,10 @@ export function TierListView() {
         finalAssignments = dragPreview.filter(
           (a) => a.characterId !== (active.id as string),
         );
+      } else if (isSimple) {
+        // The drag preview already has the card at the end of the target
+        // tier; commit it as-is (positions renumbered) with no cascade.
+        finalAssignments = normalizePositions(dragPreview);
       } else {
         const charNames = new Map(characters.map((c) => [c.id, c.name]));
         const result = enforceAfterMove(
