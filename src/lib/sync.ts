@@ -37,6 +37,7 @@ export function setSyncConfig(url: string, token: string) {
   } else {
     localStorage.removeItem(STORAGE_KEY_TOKEN);
   }
+  imageStoreSupport = null;
 }
 
 /** Probe server auth requirement. Returns null if unreachable. */
@@ -54,6 +55,7 @@ export async function probeServer(url: string): Promise<{ requiresAuth: boolean 
 export function clearSyncConfig() {
   localStorage.removeItem(STORAGE_KEY_URL);
   localStorage.removeItem(STORAGE_KEY_TOKEN);
+  imageStoreSupport = null;
 }
 
 async function apiFetch(path: string, options: RequestInit = {}) {
@@ -74,6 +76,105 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   }
 
   return res.json();
+}
+
+// ── Image store ────────────────────────────────────────────────────────────
+// Newer servers store images separately from list data, keyed by image id
+// (images are immutable per id — setCharacterImage mints a fresh id instead
+// of mutating). A push asks the server which ids it's missing and uploads
+// just those, one at a time, so list pushes carry no image payloads at all.
+// The legacy format embedded every image in every list push as base64, which
+// both re-uploaded the full image set on each edit and held several complete
+// copies of it in memory per in-flight push.
+//
+// Older servers lack the endpoints; probe once per session and fall back to
+// the embedded format for them.
+
+let imageStoreSupport: boolean | null = null;
+
+async function serverHasImageStore(): Promise<boolean> {
+  if (imageStoreSupport !== null) return imageStoreSupport;
+  try {
+    await apiFetch('/api/images/check', { method: 'POST', body: JSON.stringify({ ids: [] }) });
+    imageStoreSupport = true;
+  } catch (err) {
+    // 404 means a legacy server without the image store. Anything else
+    // (offline, bad token) is transient — don't cache a verdict from it.
+    if (err instanceof Error && err.message.startsWith('Sync error 404')) {
+      imageStoreSupport = false;
+      log.warn('sync', 'server has no image store (legacy) — embedding images in list pushes');
+    } else {
+      throw err;
+    }
+  }
+  return imageStoreSupport;
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(',');
+  const mimeMatch = header.match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+  const bytes = atob(base64);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+/** Upload images the server doesn't have yet, one at a time so at most one
+ *  image's base64 lives in memory at once. */
+async function uploadMissingImages(imageIds: string[]): Promise<void> {
+  const uniqueIds = [...new Set(imageIds)];
+  if (uniqueIds.length === 0) return;
+  const { missing } = (await apiFetch('/api/images/check', {
+    method: 'POST',
+    body: JSON.stringify({ ids: uniqueIds }),
+  })) as { missing: string[] };
+  for (const id of missing) {
+    const img = await localDb.images.get(id);
+    if (!img) continue;
+    await apiFetch(`/api/images/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        mimeType: img.mimeType,
+        originalFilename: img.originalFilename,
+        createdAt: img.createdAt,
+        dataUrl: await blobToDataUrl(img.blob),
+      }),
+    });
+  }
+  if (missing.length > 0) log.info('sync', `uploaded ${missing.length} image(s) to store`);
+}
+
+/** Fetch images referenced by pulled characters but absent locally. Failures
+ *  are per-image and non-fatal — the card renders imageless until a later
+ *  pull retries. */
+async function downloadMissingImages(imageIds: string[]): Promise<void> {
+  for (const id of imageIds) {
+    if (await localDb.images.get(id)) continue;
+    try {
+      const img = (await apiFetch(`/api/images/${id}`)) as {
+        mimeType: string; originalFilename: string; createdAt: number; dataUrl: string;
+      };
+      await localDb.images.put({
+        id,
+        blob: dataUrlToBlob(img.dataUrl),
+        mimeType: img.mimeType,
+        originalFilename: img.originalFilename,
+        createdAt: img.createdAt,
+      });
+    } catch (err) {
+      log.warn('sync', `image ${id} unavailable on server: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 }
 
 // ── Server stamps ──────────────────────────────────────────────────────────
@@ -138,33 +239,44 @@ export async function syncPush(listIds?: string[]): Promise<{ pushed: number }> 
 
   const allLists = await localDb.tierLists.toArray();
   const tierLists = listIds ? allLists.filter((tl) => listIds.includes(tl.id)) : allLists;
+  const useImageStore = tierLists.length > 0 ? await serverHasImageStore() : true;
   let pushed = 0;
 
   for (const tl of tierLists) {
     // Export data scoped to this tier list
     const characters = await localDb.characters.where('tierListId').equals(tl.id).toArray();
     const relationships = await localDb.relationships.where('tierListId').equals(tl.id).toArray();
-
-    // Get images for these characters
     const imageIds = characters.map((c) => c.imageId).filter((id): id is string => !!id);
-    const images = await localDb.images.bulkGet(imageIds);
-    const serializedImages = await Promise.all(
-      images.filter(Boolean).map(async (img) => {
-        if (!img) return null;
-        const reader = new FileReader();
-        const dataUrl = await new Promise<string>((resolve) => {
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(img.blob);
+
+    const embeddedImages: Array<{
+      id: string; mimeType: string; originalFilename: string; createdAt: number; dataUrl: string;
+    }> = [];
+    if (useImageStore) {
+      // Upload before the list PUT so a pull never sees list data whose
+      // images aren't fetchable yet.
+      await uploadMissingImages(imageIds);
+    } else {
+      // Legacy server: embed every image in the list payload. Serialized
+      // sequentially — the resulting strings all coexist in `data` anyway,
+      // but there's no need to also hold every FileReader at once.
+      for (const id of imageIds) {
+        const img = await localDb.images.get(id);
+        if (!img) continue;
+        embeddedImages.push({
+          id: img.id,
+          mimeType: img.mimeType,
+          originalFilename: img.originalFilename,
+          createdAt: img.createdAt,
+          dataUrl: await blobToDataUrl(img.blob),
         });
-        return { id: img.id, mimeType: img.mimeType, originalFilename: img.originalFilename, createdAt: img.createdAt, dataUrl };
-      }),
-    );
+      }
+    }
 
     const data = {
       tierList: tl,
       characters,
       relationships,
-      images: serializedImages.filter(Boolean),
+      images: embeddedImages,
     };
 
     const res: { updated_at?: number } = await apiFetch(`/api/lists/${tl.id}`, {
@@ -198,8 +310,8 @@ export async function syncPull(): Promise<{ pulled: number }> {
 
     // Local unpushed edits win over a concurrent remote change (LWW, push
     // side) — skipping here keeps the pull from destroying them; the pending
-    // push will overwrite the remote version shortly.
-    if (local && dirtyIds.has(remote.id)) {
+    // or in-flight push will overwrite the remote version shortly.
+    if (local && (dirtyIds.has(remote.id) || inFlightIds.has(remote.id))) {
       log.warn('sync', `skipped pull of "${remote.name}" — local edits pending push`);
       continue;
     }
@@ -260,6 +372,25 @@ export async function syncPull(): Promise<{ pulled: number }> {
       muted = false;
     }
 
+    // New-format list data carries no image payloads — fetch any referenced
+    // images we don't have from the image store. (Outside the transaction:
+    // Dexie transactions can't span network awaits. The images table has no
+    // sync hooks, so these puts can't re-dirty the list.)
+    const wantedImageIds = [
+      ...new Set(
+        ((data.characters ?? []) as Array<{ imageId?: string | null }>)
+          .map((c) => c.imageId)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const missingLocally: string[] = [];
+    for (const id of wantedImageIds) {
+      if (!(await localDb.images.get(id))) missingLocally.push(id);
+    }
+    if (missingLocally.length > 0 && (await serverHasImageStore())) {
+      await downloadMissingImages(missingLocally);
+    }
+
     pulled++;
     log.info('sync', `pulled: ${remote.name}`);
   }
@@ -313,6 +444,11 @@ let initialized = false;
 let muted = false;
 let pushTimer: number | null = null;
 let dirtyIds = new Set<string>();
+// Ids being uploaded by the currently in-flight push. Tracked separately from
+// dirtyIds (which flushPush drains up front) so a concurrent pull still knows
+// these lists have local state the server hasn't seen yet.
+let inFlightIds = new Set<string>();
+let pushing = false;
 let lastBlurAt = 0;
 
 function getListIdFrom(obj: unknown): string | undefined {
@@ -350,13 +486,22 @@ function markDeleted(listId?: string) {
 
 async function flushPush() {
   pushTimer = null;
+  // At most one push in flight. Without this guard, edits made during a slow
+  // upload spawned additional concurrent syncPush calls, each holding its own
+  // full serialization of the list payload — during rapid editing of a large
+  // list these stacked without bound (observed eating tens of GB of RAM).
+  // Edits arriving mid-push just re-dirty their ids; the finally block below
+  // schedules a follow-up flush for them.
+  if (pushing) return;
   if (!getSyncConfig()) return;
   if (dirtyIds.size === 0 && getPendingDeletes().size === 0) {
     setStatus('synced');
     return;
   }
+  pushing = true;
   const ids = [...dirtyIds];
   dirtyIds = new Set();
+  inFlightIds = new Set(ids);
   setStatus('syncing');
   try {
     await syncPush(ids); // an empty ids array still flushes pending deletions
@@ -370,6 +515,14 @@ async function flushPush() {
     log.warn('sync', `auto-push failed, retrying in ${PUSH_RETRY_MS / 1000}s: ${err instanceof Error ? err.message : String(err)}`);
     if (pushTimer) window.clearTimeout(pushTimer);
     pushTimer = window.setTimeout(flushPush, PUSH_RETRY_MS);
+  } finally {
+    pushing = false;
+    inFlightIds = new Set();
+    // Ids dirtied while this push was in flight had their timer call bounce
+    // off the guard above — make sure they get a flush.
+    if (dirtyIds.size > 0 && pushTimer == null) {
+      pushTimer = window.setTimeout(flushPush, PUSH_DEBOUNCE_MS);
+    }
   }
 }
 

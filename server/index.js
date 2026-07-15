@@ -43,6 +43,13 @@ db.exec(`
     data TEXT NOT NULL,
     created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS images (
+    id TEXT PRIMARY KEY,
+    mime_type TEXT,
+    original_filename TEXT,
+    created_at INTEGER,
+    data_url TEXT NOT NULL
+  );
 `);
 
 const app = express();
@@ -101,6 +108,49 @@ app.put('/api/lists/:id', requireAuth, (req, res) => {
 app.delete('/api/lists/:id', requireAuth, (req, res) => {
   db.prepare('DELETE FROM tier_lists WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
+});
+
+// ── Image store ──
+// Images are stored separately from list data, keyed by the client's image id
+// (immutable per id — the client mints a fresh id when an image changes).
+// Clients ask which ids are missing and upload only those, so routine list
+// pushes carry no image payloads. Rows are shared across lists and kept even
+// if no list currently references them.
+
+// Which of these ids does the server not have yet?
+app.post('/api/images/check', requireAuth, (req, res) => {
+  const ids = Array.isArray(req.body?.ids)
+    ? req.body.ids.filter((id) => typeof id === 'string')
+    : null;
+  if (!ids) return res.status(400).json({ error: 'ids array required' });
+  const has = db.prepare('SELECT 1 FROM images WHERE id = ?');
+  res.json({ missing: ids.filter((id) => !has.get(id)) });
+});
+
+app.put('/api/images/:id', requireAuth, (req, res) => {
+  const { mimeType, originalFilename, createdAt, dataUrl } = req.body;
+  if (typeof dataUrl !== 'string' || !dataUrl) {
+    return res.status(400).json({ error: 'dataUrl required' });
+  }
+  // Immutable per id: a re-upload of an existing id is a no-op.
+  db.prepare(`
+    INSERT INTO images (id, mime_type, original_filename, created_at, data_url)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO NOTHING
+  `).run(req.params.id, mimeType ?? null, originalFilename ?? null, createdAt ?? Date.now(), dataUrl);
+  res.json({ ok: true });
+});
+
+app.get('/api/images/:id', requireAuth, (req, res) => {
+  const row = db.prepare('SELECT * FROM images WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  res.json({
+    id: row.id,
+    mimeType: row.mime_type,
+    originalFilename: row.original_filename,
+    createdAt: row.created_at,
+    dataUrl: row.data_url,
+  });
 });
 
 // ── Share endpoints (public read) ──
