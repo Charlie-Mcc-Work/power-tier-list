@@ -93,6 +93,13 @@ export function GraphView({ relationships, characters, tierList }: Props) {
   const [resizeTick, setResizeTick] = useState(0);
   const dragging = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
+  // Tears down an in-flight pan-drag's document listeners; set by
+  // handleMouseDown, cleared by its onUp. Without the unmount cleanup below,
+  // a drag whose mouseup never reaches document (alt-tab mid-drag, mouseup
+  // over browser chrome, unmount via fullscreen/pane toggle) would leave the
+  // listener pair attached forever, pinning the whole layout + canvas.
+  const dragCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => dragCleanup.current?.(), []);
 
   const charMap = useMemo(
     () => new Map(characters.map((c) => [c.id, c])),
@@ -519,9 +526,11 @@ export function GraphView({ relationships, characters, tierList }: Props) {
       dragging.current = false;
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      dragCleanup.current = null;
     }
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+    dragCleanup.current = onUp;
   }
 
   function handleWheel(e: React.WheelEvent) {

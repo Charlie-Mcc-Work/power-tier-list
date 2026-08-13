@@ -2,6 +2,7 @@ import { db } from './database';
 import type { Snapshot } from './database';
 import type { Character, TierList, Relationship, ImageBlob } from '../types';
 import { buildGraph, detectCycles } from '../lib/graph';
+import { invalidateAllImages } from '../hooks/use-image';
 
 interface ExportData {
   version: 1;
@@ -251,6 +252,10 @@ async function applyImportedData(data: ExportData, mode: ImportMode): Promise<st
     await Promise.all(writes);
   });
 
+  // Cached object URLs still point at (and pin) pre-import blobs; in replace
+  // mode reused ids would even keep showing the old images until reload.
+  if (includesImages) invalidateAllImages();
+
   return warnings;
 }
 
@@ -499,6 +504,9 @@ export async function importSingleListReplace(
       if (newRels.length > 0) await db.relationships.bulkAdd(newRels);
     },
   );
+
+  // The replaced list's cached image URLs are now stale/orphaned.
+  invalidateAllImages();
 
   return {
     tierLists: 1,

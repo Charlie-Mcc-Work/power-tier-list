@@ -94,8 +94,17 @@ if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', () => flushPending());
 }
 
+// If IndexedDB never becomes available (private mode, quota, corrupt DB),
+// flushPending can't drain — cap the queue so an error storm in that state
+// can't grow it without bound. Oldest entries are dropped first, matching
+// the persisted store's pruning direction.
+const MAX_PENDING = 500;
+
 function persistEntry(entry: LogEntry) {
   pendingWrites.push(entry);
+  if (pendingWrites.length > MAX_PENDING) {
+    pendingWrites.splice(0, pendingWrites.length - MAX_PENDING);
+  }
   scheduleFlush();
 }
 

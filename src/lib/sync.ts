@@ -72,7 +72,9 @@ async function apiFetch(path: string, options: RequestInit = {}) {
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Sync error ${res.status}: ${text}`);
+    const err = new Error(`Sync error ${res.status}: ${text}`) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
   }
 
   return res.json();
@@ -230,7 +232,17 @@ export async function syncPush(listIds?: string[]): Promise<{ pushed: number }> 
       setPendingDeletes(pendingDeletes);
       continue;
     }
-    await apiFetch(`/api/lists/${id}`, { method: 'DELETE' });
+    try {
+      await apiFetch(`/api/lists/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      // Already gone server-side (deleted from another device, server DB
+      // rebuilt) — the goal state is reached; treat as success. Anything
+      // else stays pending for retry. Without this, one 404 wedged the
+      // queue permanently and blocked every subsequent push.
+      const status = (err as Error & { status?: number }).status;
+      if (status !== 404 && status !== 410) throw err;
+      log.info('sync', `deletion already applied server-side (${status}): ${id}`);
+    }
     pendingDeletes.delete(id);
     setPendingDeletes(pendingDeletes);
     await localDb.meta.delete(stampKey(id));
@@ -485,7 +497,14 @@ function markDeleted(listId?: string) {
 }
 
 async function flushPush() {
-  pushTimer = null;
+  // Cancel (not just orphan) any pending debounce timer: pullSilently calls
+  // flushPush directly, and merely nulling the handle here would leave the
+  // old timeout alive and invisible to markDirty's clearTimeout guard —
+  // breaking the "at most one pending push timer" invariant.
+  if (pushTimer != null) {
+    window.clearTimeout(pushTimer);
+    pushTimer = null;
+  }
   // At most one push in flight. Without this guard, edits made during a slow
   // upload spawned additional concurrent syncPush calls, each holding its own
   // full serialization of the list payload — during rapid editing of a large

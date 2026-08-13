@@ -9,6 +9,12 @@ import { ensureTierList, useTierList } from '../../hooks/use-tier-list';
 function DragHandle({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
   const setSplitPercent = useUIStore((s) => s.setSplitPercent);
   const isDragging = useRef(false);
+  // In-flight drag teardown; without the unmount cleanup a drag interrupted
+  // before mouseup reaches document (mid-drag unmount via the responsive
+  // layout switch, alt-tab) leaves the listeners attached and the page stuck
+  // in col-resize with text selection disabled.
+  const dragCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => dragCleanup.current?.(), []);
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -30,10 +36,12 @@ function DragHandle({ containerRef }: { containerRef: React.RefObject<HTMLDivEle
         document.body.style.userSelect = '';
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
+        dragCleanup.current = null;
       };
 
       document.addEventListener('mousemove', onMouseMove);
       document.addEventListener('mouseup', onMouseUp);
+      dragCleanup.current = onMouseUp;
     },
     [containerRef, setSplitPercent],
   );
