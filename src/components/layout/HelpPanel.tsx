@@ -170,10 +170,11 @@ export function HelpPanel() {
               </li>
               <li>
                 <span className="text-gray-300">Auto-placement:</span> When you add a
-                relationship, an unranked character connected to a <em>placed</em> one is
-                placed at the tier implied by its partner — same tier for &gt;=, one tier
-                above/below for &gt;. A relationship between two unranked characters
-                leaves both unranked until one of them is placed.
+                relationship, unranked characters in it are placed as high as their
+                relationships allow. Connected to a placed character, they land at the
+                tier implied by the partner — same tier for &gt;=, one tier above/below
+                for &gt;. With no placed partner (even on an empty board), the top of the
+                chain seeds at the highest tier and the rest cascade down from there.
               </li>
               <li>
                 <span className="text-gray-300">Drag cascading:</span> Moving a character pulls

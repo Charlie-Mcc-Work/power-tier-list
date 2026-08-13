@@ -195,15 +195,27 @@ describe('autoPlaceAndEnforce', () => {
     expect(tierOf(result, 'B')).toBe('C');
   });
 
-  it('leaves fully-unranked related characters unranked', () => {
-    // A >= B with neither placed — no anchor to the board, so neither should
-    // be yanked into the top tier.
+  it('places fully-unranked related characters from the top tier down', () => {
+    // A >= B with neither placed — both go as high as allowed: same top tier,
+    // A ordered before B. Unrelated placed chars are untouched.
     const initial = [at('X', 'S')];
     const rels = [rel('A', 'B', false)];
     const result = autoPlaceAndEnforce(initial, rels, new Set(['X', 'A', 'B']), TIERS);
-    expect(tierOf(result, 'A')).toBeUndefined();
-    expect(tierOf(result, 'B')).toBeUndefined();
+    expect(tierOf(result, 'A')).toBe('S');
+    expect(tierOf(result, 'B')).toBe('S');
+    const sortedS = result.filter((a) => a.tier === 'S').sort((x, y) => x.position - y.position);
+    expect(sortedS.map((a) => a.characterId).indexOf('A')).toBeLessThan(
+      sortedS.map((a) => a.characterId).indexOf('B'),
+    );
     expect(tierOf(result, 'X')).toBe('S');
+  });
+
+  it('places a strict pair on an empty board at top and one below', () => {
+    // X > Y with an empty board — X seeds at the top tier, Y one below.
+    const rels = [rel('X', 'Y', true)];
+    const result = autoPlaceAndEnforce([], rels, new Set(['X', 'Y']), TIERS);
+    expect(tierOf(result, 'X')).toBe('S');
+    expect(tierOf(result, 'Y')).toBe('A');
   });
 
   it('clamps to bottom tier when overflow would occur', () => {

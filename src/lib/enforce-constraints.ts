@@ -389,10 +389,11 @@ export function enforceAfterMove(
 }
 
 /**
- * Place unranked characters that have relationships to placed ones, and
- * enforce all constraints across the list. Non-strict (>=) pulls unranked
- * chars straight to the partner's tier; strict (>) places one tier above
- * or below as appropriate. Best-effort: if constraints can't be fully
+ * Place unranked characters that have relationships, and enforce all
+ * constraints across the list. Characters go as high as their relationships
+ * allow: unranked chars with a placed partner are placed relative to it
+ * (same tier for >=, one below for >), and fully-unranked components seed
+ * at the top tier and cascade down. Best-effort: if constraints can't be fully
  * satisfied, logs a warning and returns the partial state rather than
  * failing.
  */
@@ -411,12 +412,16 @@ export function autoPlaceAndEnforce(
     strict: r.strict ?? false,
   }));
 
-  // Only characters connected (transitively) to a placed one get pulled onto
-  // the board — a relationship between two fully-unranked characters says
-  // nothing about where they belong, so both stay unranked.
-  const placed = new Set(currentAssignments.map((a) => a.characterId));
-  const charSet = reachableChars(placed, rels, allCharacterIds);
-  for (const id of placed) charSet.add(id);
+  // Every character that appears in a relationship (and is in the active
+  // list) belongs to the solver, whether or not anything nearby is placed:
+  // characters go as high as their relationships allow, so "X > Y" on an
+  // empty board puts X at the top and Y below it.
+  const charSet = new Set<string>();
+  for (const r of rels) {
+    if (allCharacterIds.has(r.superiorId)) charSet.add(r.superiorId);
+    if (allCharacterIds.has(r.inferiorId)) charSet.add(r.inferiorId);
+  }
+  for (const a of currentAssignments) charSet.add(a.characterId);
 
   const seed = new Map<string, number>();
   for (const a of currentAssignments) seed.set(a.characterId, toIdx(a.tier, tierIds));
