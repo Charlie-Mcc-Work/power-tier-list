@@ -619,3 +619,8 @@ export function refreshAutoSync() {
   }
   setStatus(dirtyIds.size === 0 ? 'synced' : 'syncing');
 }
+
+/** Queue sizes for the memory monitor. */
+export function getSyncQueueStats() {
+  return { dirty: dirtyIds.size, inFlight: inFlightIds.size, pushing };
+}

@@ -332,6 +332,16 @@ export function HelpPanel() {
                 Present, Sync, Backups, Export, Import, Help, plus card-size and image-display controls.
               </li>
               <li><span className="text-gray-300">Undo / Redo</span> — Ctrl+Z to undo, Ctrl+Shift+Z or Ctrl+Y to redo. Tracks drag moves and relationship placements (last 50 states). History belongs to the open tier list and clears when you switch lists; the shortcut is ignored while you're typing in a text field.</li>
+              <li>
+                <span className="text-gray-300">Memory monitor</span> — Ctrl+Shift+M toggles a small
+                readout in the bottom-right corner: JS heap size and trend (Chrome only), live image
+                blob URLs, image-cache entries, undo history, sync queue, log buffer and DOM node
+                counts, each with its change since the page loaded. A counter that only ever climbs
+                is flagged as &quot;climbing&quot;. Samples are taken every 30s and survive reloads;
+                in the browser console <code className="text-gray-300">memStats.report()</code> prints
+                the full table with per-hour growth rates and
+                <code className="text-gray-300"> memStats.dump()</code> exports the raw samples.
+              </li>
               <li><span className="text-gray-300">Save Image</span> — In presentation mode, click "Save Image" to download the tier list as a PNG.</li>
               <li>
                 <span className="text-gray-300">Copy Text</span> — Opens a text version

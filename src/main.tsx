@@ -5,6 +5,10 @@ import './index.css'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { log } from './lib/logger.ts'
+import { startMemoryMonitor } from './lib/memory-monitor.ts'
+
+// Start before any render so the blob-URL wrapper sees every createObjectURL.
+startMemoryMonitor()
 
 // Catch unhandled errors globally
 window.addEventListener('error', (e) => {

@@ -5,6 +5,7 @@ import { SnapshotManager } from './components/layout/SnapshotManager';
 import { HelpPanel } from './components/layout/HelpPanel';
 import { SyncPanel } from './components/layout/SyncPanel';
 import { CopyAsTextModal } from './components/layout/CopyAsTextModal';
+import { MemoryOverlay } from './components/layout/MemoryOverlay';
 import { useUIStore } from './stores/ui-store';
 import { requestPersistentStorage } from './db/auto-backup';
 import { initAutoSync } from './lib/sync';
@@ -44,6 +45,7 @@ function App() {
       <HelpPanel />
       <SyncPanel />
       <CopyAsTextModal />
+      <MemoryOverlay />
     </>
   );
 }

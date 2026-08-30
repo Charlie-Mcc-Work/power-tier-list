@@ -178,3 +178,15 @@ export function useImage(imageId: string | undefined): string | null {
 
   return useSyncExternalStore(subscribeForId, getSnapshot, () => null);
 }
+
+/** Counters for the memory monitor. Cheap — reads Map sizes only. */
+export function getImageCacheStats() {
+  let withUrl = 0;
+  for (const e of cache.values()) if (e.url) withUrl++;
+  return {
+    cached: cache.size,
+    withUrl,
+    subscribed: subscribers.size,
+    evictTimers: evictTimers.size,
+  };
+}
