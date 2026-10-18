@@ -23,7 +23,8 @@
  *   memStats.gc()       — window.gc() if Chrome was launched with
  *                         --js-flags=--expose-gc, else no-op
  *
- * Overlay: Ctrl+Shift+M toggles a floating panel (state persisted).
+ * No UI — this is a console-only diagnostic. Call memStats.report() in
+ * DevTools when hunting a leak.
  */
 
 import { getImageCacheStats } from '../hooks/use-image';
@@ -34,7 +35,6 @@ import { log } from './logger';
 export const SAMPLE_INTERVAL_MS = 30_000;
 const MAX_SAMPLES = 2_000; // ~16h at 30s
 const STORAGE_KEY = 'ptl_mem_samples';
-const OVERLAY_KEY = 'ptl_mem_overlay';
 
 export interface MemSample {
   t: number;
@@ -316,6 +316,4 @@ export const memStats = {
       console.log('[memStats] window.gc unavailable (launch Chrome with --js-flags=--expose-gc)');
     }
   },
-  isOverlayOn: () => { try { return localStorage.getItem(OVERLAY_KEY) === '1'; } catch { return false; } },
-  setOverlay: (on: boolean) => { try { localStorage.setItem(OVERLAY_KEY, on ? '1' : '0'); } catch { /* ignore */ } },
 };
